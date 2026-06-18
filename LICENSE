@@ -1,0 +1,43 @@
+Source Available License
+
+Copyright (c) 2026 phantombite
+All rights reserved.
+
+PREAMBLE
+This software is made publicly available for transparency and community
+trust. The source code may be viewed but may NOT be used without explicit
+written permission from the copyright holder.
+
+1. VIEWING PERMITTED
+   You are permitted to read and study the source code for personal,
+   educational, and security-review purposes only.
+
+2. ALL OTHER USE PROHIBITED
+   Without prior written permission from phantombite, you may NOT:
+   - Copy, reproduce or extract the source code or any part thereof
+   - Modify, adapt or create derivative works
+   - Distribute, publish or make available the source code or any part thereof
+   - Use the source code or any part thereof in any other software or project
+   - Reverse engineer the compiled binaries beyond what is permitted by law
+
+3. END USER RIGHTS
+   End users may download and use the compiled releases
+   (e.g. EVE_Toolbox_Setup.exe, start_windows.exe) free of charge
+   for personal, non-commercial use only.
+
+4. EVE ONLINE NOTICE
+   This application is an unofficial tool and is not affiliated with,
+   endorsed by, or connected to CCP hf. in any way.
+   EVE Online(R) is a registered trademark of CCP hf.
+   All EVE-related assets, data and trademarks remain the sole property
+   of CCP hf. Use of the EVE ESI API is subject to the
+   CCP Developer License Agreement.
+
+5. NO WARRANTY
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
+   IN NO EVENT SHALL phantombite BE LIABLE FOR ANY CLAIM, DAMAGES
+   OR OTHER LIABILITY ARISING FROM THE USE OF THIS SOFTWARE.
+
+6. CONTACT
+   For licensing inquiries or permission requests:
+   https://github.com/phantombite

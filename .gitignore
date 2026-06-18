@@ -1,0 +1,68 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# PyInstaller Build-Output
+build/build/
+build/dist/
+*.spec.bak
+
+# Nutzer-Daten (lokal)
+*.json.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Persönliche Notizen
+Auf der Argenda.txt
+START_HIER.txt
+*.todo.txt
+
+# Secrets
+.env
+secrets.py
+client_secret.txt
+
+# Backup
+*.bak
+backup/
+
+# ── Sicherheitsdateien (NIEMALS pushen!) ──────────────────────
+# Privater Schlüssel für Dev-Token Signierung
+dev_privkey.pem
+
+# Dev-Token (nur auf phantombites Rechner)
+dev_mode.flag
+
+# ── Nutzerdaten (lokal, nicht versionieren) ───────────────────
+# EVE Tokens (OAuth)
+eve_toolbox/tokens/
+tokens/
+
+# Logs
+*.log
+eve_toolbox/logs/
+logs/
+
+# Lokale Einstellungen
+settings.json
+
+# ── Build Output ──────────────────────────────────────────────
+# PyInstaller Ausgaben
+_internal/
+build/dist/
+*.exe
+
+# Release ZIP (wird als GitHub Release Anhang hochgeladen, nicht ins Repo)
+eve_toolbox.zip
+
+# Temporäre Update-Dateien
+update_download.zip
+previous_version.zip
