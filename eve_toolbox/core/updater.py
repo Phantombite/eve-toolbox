@@ -247,6 +247,44 @@ def restore_backup() -> tuple[bool, str]:
         return False, f"Fehler: {e}"
 
 
+# ── Neustart Hilfsfunktionen ─────────────────────────────────
+
+def cleanup_old_files():
+    """Löscht _old Dateien vom letzten Update."""
+    old_exe      = APP_DIR / "EVE_Toolbox_old.exe"
+    old_internal = APP_DIR / "_internal_old"
+
+    if old_exe.exists():
+        try:
+            old_exe.unlink()
+            _log.info("EVE_Toolbox_old.exe gelöscht")
+        except Exception as e:
+            _log.warning(f"Konnte EVE_Toolbox_old.exe nicht löschen: {e}")
+
+    if old_internal.exists():
+        try:
+            shutil.rmtree(old_internal)
+            _log.info("_internal_old gelöscht")
+        except Exception as e:
+            _log.warning(f"Konnte _internal_old nicht löschen: {e}")
+
+
+def _restart_app():
+    """Startet EVE_Toolbox.exe neu und beendet aktuellen Prozess."""
+    exe = APP_DIR / "EVE_Toolbox.exe"
+    if exe.exists():
+        _log.info(f"Starte neu: {exe}")
+        subprocess.Popen(
+            [str(exe)],
+            cwd=str(APP_DIR),
+            creationflags=0x00000008  # DETACHED_PROCESS
+        )
+    else:
+        _log.error("EVE_Toolbox.exe nicht gefunden für Neustart!")
+    time.sleep(0.5)
+    sys.exit(0)
+
+
 # ── Download und Installation ─────────────────────────────────
 
 def download_and_install(info: dict, progress_callback=None) -> tuple[bool, str]:

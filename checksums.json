@@ -13,7 +13,7 @@
   "eve_toolbox/core/logger.py": "ecef4c208edf02f70d874bacdaa9d83378edbe1585535a364659c118563bd4d3",
   "eve_toolbox/core/notifications.py": "8efb55fdd813ccab25bbee909e897963597ba7ee6ca632803dd51662ee361517",
   "eve_toolbox/core/settings.py": "9f5332e31220b1c182afeb48d6eca5bf23ff81beb11de2ac3d2a916ec1a5c168",
-  "eve_toolbox/core/updater.py": "4c2bf035f09e7cf1baebd951eb7587ab82e8594f4f1f54339c817b87bbaa8aa2",
+  "eve_toolbox/core/updater.py": "44739ecba2e7695519ebd3831a18de6e1d07db822d0b30f51551948ac5b0e025",
   "eve_toolbox/i18n/de.json": "61e9eaa5525fa9ecd47be4b7ccae8a9d2f0c6bc0b0e60c579e767e0f0c68f571",
   "eve_toolbox/i18n/en.json": "2fcd8e05d9584012d3f0d3084fc7241d5301b5b2adb97653302ad5b2ae0a9303",
   "eve_toolbox/main.py": "742373f87c03e3c5b2dbb3a5dddfccd0f466a5206cb35f5d47d916374227d86e",
