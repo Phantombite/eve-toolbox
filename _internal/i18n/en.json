@@ -1,0 +1,183 @@
+{
+  "_meta": {
+    "language": "English",
+    "code": "en",
+    "author": "phantombite"
+  },
+  "app": {
+    "name": "EVE Toolbox"
+  },
+  "nav": {
+    "home": "Home",
+    "settings": "Settings",
+    "notifications": "Notifications",
+    "accounts": "Accounts"
+  },
+  "home": {
+    "accounts": "Accounts",
+    "industry_jobs": "Industry Jobs",
+    "intel_alerts": "Intel Alerts",
+    "pi_colonies": "PI Colonies",
+    "not_available": "Not Available"
+  },
+  "modules": {
+    "assets": {
+      "name": "Assets",
+      "desc": "All items across chars & corps"
+    },
+    "markt": {
+      "name": "Market",
+      "desc": "Prices, orders & trading"
+    },
+    "skills": {
+      "name": "Skills",
+      "desc": "Offline skill planning"
+    },
+    "intel": {
+      "name": "Intel",
+      "desc": "Real-time system monitoring"
+    },
+    "pi": {
+      "name": "Planetary (PI)",
+      "desc": "Colonies & extraction"
+    },
+    "industrie": {
+      "name": "Industry",
+      "desc": "Blueprints & calculation"
+    },
+    "routen": {
+      "name": "Routes",
+      "desc": "Safe paths & planning"
+    },
+    "wallet": {
+      "name": "Wallet",
+      "desc": "ISK, transactions & journal"
+    }
+  },
+  "settings": {
+    "title": "Settings",
+    "quick_title": "Quick Settings",
+    "all_settings": "All Settings →",
+    "edit_layout": "Edit Layout",
+    "edit_layout_desc": "Move modules via drag & drop",
+    "general": "General",
+    "language": "Language",
+    "language_desc": "App display language",
+    "window_size": "Window Size",
+    "window_size_desc": "Window size on startup",
+    "check_update": "Check Now",
+    "checking": "Checking...",
+    "up_to_date": "✓  Up to date",
+    "appearance": "Appearance",
+    "faction_design": "Faction Design",
+    "faction_design_desc": "Sets colors and logos throughout the app",
+    "theme": "Theme",
+    "theme_desc": "Light or Dark mode",
+    "theme_light": "Light",
+    "theme_dark": "Dark",
+    "home_layout": "Home Layout",
+    "home_layout_desc": "How modules are displayed on the home screen",
+    "accounts": "Account Management",
+    "accounts_desc": "All connected EVE accounts and characters. ESI login coming in a later version.",
+    "set_active": "Set Active",
+    "active": "● Active",
+    "add_account": "＋  Add Account  (ESI Login — coming soon)",
+    "delete_multiple": "✕  Delete Multiple",
+    "delete_confirm": "✕  Delete {n}",
+    "func_info": "Feature Info",
+    "func_info_desc": "Status: Ready · In Development · Planned",
+    "status_ready": "Ready",
+    "status_dev": "In Development",
+    "status_planned": "Planned",
+    "developer": "Developer",
+    "dev_mode": "Developer Mode",
+    "dev_mode_desc": "Unlocks modules marked as 'In Development'",
+    "test_mode": "Test Mode",
+    "test_mode_desc": "Lifts ALL restrictions. Only when Developer Mode is active.",
+    "updates": "Updates",
+    "installed_version": "Installed Version",
+    "latest_version": "Latest Version",
+    "check_on_start": "Check on Startup",
+    "check_on_start_desc": "App automatically checks for updates on startup",
+    "auto_install": "Auto Install",
+    "auto_install_desc": "Automatically install found updates. Only active when 'Check on Startup' is on.",
+    "restore": "↩  Restore",
+    "restore_title": "Previous Version",
+    "no_backup": "No backup available",
+    "backup_available": "Backup available: v{version}",
+    "reset": "Reset",
+    "reset_layout": "Reset Layout",
+    "reset_layout_desc": "Resets module order to default",
+    "reset_settings": "Reset Settings",
+    "reset_settings_desc": "Resets faction, theme, language to default",
+    "reset_all": "Reset Everything",
+    "reset_all_desc": "Resets all settings and layouts to factory defaults",
+    "reset_btn": "Reset",
+    "reset_all_btn": "⚠  Reset Everything",
+    "back": "✕  Back"
+  },
+  "notifications": {
+    "title": "Notifications",
+    "current": "Current",
+    "info": "Info",
+    "important": "Important",
+    "updates": "Updates",
+    "news": "News",
+    "all": "All",
+    "simulator": "Simulator",
+    "no_new": "No new notifications ✓",
+    "no_notifications": "No notifications available",
+    "mark_read": "✓  Mark as read",
+    "mark_all_read": "✓  Mark all read",
+    "all_notifications": "📋  All Notifications →",
+    "valid_until": "Valid until: {date}",
+    "sim_warning": "🧪  Test Mode — messages will not be saved",
+    "sim_title": "Simulate message",
+    "sim_sent": "Sent test messages: {n}",
+    "sim_clear": "🗑  Clear all test messages",
+    "type_update": "Update",
+    "type_system": "System",
+    "type_news": "News",
+    "type_warning": "Warning",
+    "send": "+ Send"
+  },
+  "accounts": {
+    "title": "Accounts",
+    "manage": "⚙  Account Management"
+  },
+  "splash": {
+    "loading": "Loading EVE Toolbox...",
+    "initializing": "Initializing...",
+    "checking_updates": "Checking for updates...",
+    "no_update": "No update found.",
+    "update_found": "Update v{version} found!",
+    "creating_backup": "Creating backup...",
+    "installing": "Installing v{version}...",
+    "installed": "Update v{version} installed! Restart recommended.",
+    "failed": "Update failed: {error}",
+    "ready": "Ready!",
+    "starting": "Starting app...",
+    "no_auto_install": "Update available — auto install disabled.",
+    "phase_init": "Initialization",
+    "phase_checking": "Update Check",
+    "phase_installing": "Installation",
+    "phase_done": "Done",
+    "phase_integrity": "Integrity Check",
+    "integrity_start": "Starting integrity check...",
+    "integrity_token": "Dev token found — check skipped",
+    "integrity_offline": "Offline — check not possible",
+    "integrity_checking": "Checking files...",
+    "integrity_fixing": "Repairing modified files...",
+    "integrity_ok": "All files verified ✓",
+    "integrity_fixed": "{n} file(s) restored ✓",
+    "integrity_failed": "ERROR: {n} file(s) could not be repaired"
+  },
+  "common": {
+    "yes": "Yes",
+    "no": "No",
+    "close": "Close",
+    "error": "Error",
+    "success": "Success",
+    "back": "Back"
+  }
+}

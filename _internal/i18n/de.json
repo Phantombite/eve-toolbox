@@ -1,0 +1,183 @@
+{
+  "_meta": {
+    "language": "Deutsch",
+    "code": "de",
+    "author": "phantombite"
+  },
+  "app": {
+    "name": "EVE Toolbox"
+  },
+  "nav": {
+    "home": "Home",
+    "settings": "Einstellungen",
+    "notifications": "Meldungen",
+    "accounts": "Accounts"
+  },
+  "home": {
+    "accounts": "Accounts",
+    "industry_jobs": "Industrie Jobs",
+    "intel_alerts": "Intel Alarme",
+    "pi_colonies": "PI Kolonien",
+    "not_available": "Nicht Verfügbar"
+  },
+  "modules": {
+    "assets": {
+      "name": "Assets",
+      "desc": "Alle Items aller Chars & Corps"
+    },
+    "markt": {
+      "name": "Markt",
+      "desc": "Preise, Orders & Handel"
+    },
+    "skills": {
+      "name": "Skills",
+      "desc": "Skill-Planung offline"
+    },
+    "intel": {
+      "name": "Intel",
+      "desc": "Echtzeit Systemüberwachung"
+    },
+    "pi": {
+      "name": "Planetary (PI)",
+      "desc": "Kolonien & Extraktion"
+    },
+    "industrie": {
+      "name": "Industrie",
+      "desc": "Blueprints & Kalkulation"
+    },
+    "routen": {
+      "name": "Routen",
+      "desc": "Sichere Pfade & Planung"
+    },
+    "wallet": {
+      "name": "Wallet",
+      "desc": "ISK, Transaktionen & Journal"
+    }
+  },
+  "settings": {
+    "title": "Einstellungen",
+    "quick_title": "Schnelleinstellungen",
+    "all_settings": "Alle Einstellungen →",
+    "edit_layout": "Layout bearbeiten",
+    "edit_layout_desc": "Module per Drag & Drop verschieben",
+    "general": "Allgemein",
+    "language": "Sprache",
+    "language_desc": "Anzeigesprache der App",
+    "window_size": "Fenstergröße",
+    "window_size_desc": "Größe des Programmfensters beim Start",
+    "check_update": "Jetzt prüfen",
+    "checking": "Prüfe...",
+    "up_to_date": "✓  Aktuell",
+    "appearance": "Darstellung",
+    "faction_design": "Fraktionsdesign",
+    "faction_design_desc": "Bestimmt Farben und Logos der gesamten App",
+    "theme": "Erscheinungsbild",
+    "theme_desc": "Hell oder Dunkel Modus",
+    "theme_light": "Hell",
+    "theme_dark": "Dunkel",
+    "home_layout": "Home Layout",
+    "home_layout_desc": "Wie Module auf der Startseite angezeigt werden",
+    "accounts": "Account-Verwaltung",
+    "accounts_desc": "Alle verbundenen EVE-Accounts und Charaktere. ESI-Login kommt in einer späteren Version.",
+    "set_active": "Aktiv setzen",
+    "active": "● Aktiv",
+    "add_account": "＋  Account hinzufügen  (ESI-Login — coming soon)",
+    "delete_multiple": "✕  Mehrere löschen",
+    "delete_confirm": "✕  {n} löschen",
+    "func_info": "Funktions-Info",
+    "func_info_desc": "Status: Fertig · In Entwicklung · Geplant",
+    "status_ready": "Fertig",
+    "status_dev": "In Entwicklung",
+    "status_planned": "Geplant",
+    "developer": "Entwickler",
+    "dev_mode": "Entwicklermodus",
+    "dev_mode_desc": "Schaltet Module frei die als 'In Entwicklung' markiert sind",
+    "test_mode": "Testmodus",
+    "test_mode_desc": "Hebt ALLE Sperren auf. Nur wenn Entwicklermodus aktiv.",
+    "updates": "Updates",
+    "installed_version": "Installierte Version",
+    "latest_version": "Neueste Version",
+    "check_on_start": "Beim Start prüfen",
+    "check_on_start_desc": "App sucht beim Start automatisch nach Updates",
+    "auto_install": "Automatisch installieren",
+    "auto_install_desc": "Gefundene Updates direkt installieren. Nur aktiv wenn 'Beim Start prüfen' an.",
+    "restore": "↩  Wiederherstellen",
+    "restore_title": "Vorherige Version",
+    "no_backup": "Kein Backup vorhanden",
+    "backup_available": "Backup vorhanden: v{version}",
+    "reset": "Zurücksetzen",
+    "reset_layout": "Layout zurücksetzen",
+    "reset_layout_desc": "Setzt die Reihenfolge der Module auf Standard zurück",
+    "reset_settings": "Einstellungen zurücksetzen",
+    "reset_settings_desc": "Setzt Fraktion, Theme, Sprache auf Standard zurück",
+    "reset_all": "Alles zurücksetzen",
+    "reset_all_desc": "Setzt alle Einstellungen und Layouts auf Werkseinstellungen zurück",
+    "reset_btn": "Zurücksetzen",
+    "reset_all_btn": "⚠  Alles zurücksetzen",
+    "back": "✕  Zurück"
+  },
+  "notifications": {
+    "title": "Meldungen",
+    "current": "Aktuell",
+    "info": "Info",
+    "important": "Wichtig",
+    "updates": "Updates",
+    "news": "News",
+    "all": "Alle",
+    "simulator": "Simulator",
+    "no_new": "Keine neuen Benachrichtigungen ✓",
+    "no_notifications": "Keine Meldungen vorhanden",
+    "mark_read": "✓  Als gelesen markieren",
+    "mark_all_read": "✓  Alle gelesen",
+    "all_notifications": "📋  Alle Meldungen →",
+    "valid_until": "Gültig bis: {date}",
+    "sim_warning": "🧪  Test-Modus — Nachrichten werden nicht gespeichert",
+    "sim_title": "Nachricht simulieren",
+    "sim_sent": "Gesendete Test-Nachrichten: {n}",
+    "sim_clear": "🗑  Alle Test-Nachrichten löschen",
+    "type_update": "Update",
+    "type_system": "System",
+    "type_news": "News",
+    "type_warning": "Warnung",
+    "send": "+ Senden"
+  },
+  "accounts": {
+    "title": "Accounts",
+    "manage": "⚙  Account-Verwaltung"
+  },
+  "splash": {
+    "loading": "Lade EVE Toolbox...",
+    "initializing": "Initialisiere...",
+    "checking_updates": "Suche nach Updates...",
+    "no_update": "Kein Update gefunden.",
+    "update_found": "Update v{version} gefunden!",
+    "creating_backup": "Erstelle Backup...",
+    "installing": "Installiere v{version}...",
+    "installed": "Update v{version} installiert! Neustart empfohlen.",
+    "failed": "Update fehlgeschlagen: {error}",
+    "ready": "Bereit!",
+    "starting": "Starte App...",
+    "no_auto_install": "Update verfügbar — wird nicht automatisch installiert.",
+    "phase_init": "Initialisierung",
+    "phase_checking": "Update-Prüfung",
+    "phase_installing": "Installation",
+    "phase_done": "Fertig",
+    "phase_integrity": "Integritätsprüfung",
+    "integrity_start": "Starte Integritätsprüfung...",
+    "integrity_token": "Dev-Token gefunden — Prüfung übersprungen",
+    "integrity_offline": "Offline — Prüfung nicht möglich",
+    "integrity_checking": "Prüfe Dateien...",
+    "integrity_fixing": "Repariere manipulierte Dateien...",
+    "integrity_ok": "Alle Dateien geprüft ✓",
+    "integrity_fixed": "{n} Datei(en) wiederhergestellt ✓",
+    "integrity_failed": "FEHLER: {n} Datei(en) konnten nicht repariert werden"
+  },
+  "common": {
+    "yes": "Ja",
+    "no": "Nein",
+    "close": "Schließen",
+    "error": "Fehler",
+    "success": "Erfolgreich",
+    "back": "Zurück"
+  }
+}

@@ -234,15 +234,19 @@ if errorlevel 1 ( echo  [FEHLER] ZIP fehlgeschlagen! & set ERRORS=1 & goto :repo
 if not exist "eve_toolbox.zip" ( echo  [FEHLER] ZIP nicht erstellt! & set ERRORS=1 & goto :report )
 for %%f in ("eve_toolbox.zip") do echo  [  OK ] eve_toolbox.zip erstellt ^(%%~zf bytes^)
 
-:: Alte EXE loeschen und neue kopieren
+:: Alten Release-Ordner loeschen und neu kopieren
 echo.
-echo  [...] Kopiere EVE_Toolbox.exe...
-if exist "EVE_Toolbox.exe" (
-    del "EVE_Toolbox.exe" >nul 2>&1
-    echo  [  OK ] Alte EXE geloescht
+echo  [...] Kopiere Release-Dateien ins Hauptverzeichnis...
+if exist "EVE_Toolbox.exe" del "EVE_Toolbox.exe" >nul 2>&1
+if exist "_internal" rmdir /s /q "_internal" >nul 2>&1
+xcopy "build\dist\EVE_Toolbox\*" "." /E /Y /Q >nul 2>&1
+if errorlevel 1 (
+    echo  [FEHLER] Kopieren fehlgeschlagen!
+    set ERRORS=1
+) else (
+    echo  [  OK ] EVE_Toolbox.exe aktualisiert
+    echo  [  OK ] _internal\ aktualisiert
 )
-copy "build\dist\EVE_Toolbox\EVE_Toolbox.exe" "EVE_Toolbox.exe" >nul 2>&1
-if errorlevel 1 ( echo  [FEHLER] EXE konnte nicht kopiert werden! & set ERRORS=1 ) else ( echo  [  OK ] EVE_Toolbox.exe aktualisiert )
 echo.
 
 :ask_4

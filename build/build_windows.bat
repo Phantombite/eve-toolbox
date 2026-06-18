@@ -123,17 +123,17 @@ echo      _internal\
 echo        ...
 echo.
 
-:ask_open
-set OPEN_CHOICE=
-set /p OPEN_CHOICE="  Ausgabe-Ordner jetzt oeffnen? (y/n) > "
-if /i "!OPEN_CHOICE!"=="y" ( explorer "dist\EVE_Toolbox" & goto :ask_exit )
-if /i "!OPEN_CHOICE!"=="n" goto :ask_exit
-echo  Bitte y oder n eingeben.
-goto :ask_open
-
-:ask_exit
-set EXIT_CHOICE=
-set /p EXIT_CHOICE="  Beenden? (x) > "
-if /i "!EXIT_CHOICE!"=="x" exit
-echo  Bitte x eingeben.
-goto :ask_exit
+:: Release-Dateien ins Hauptverzeichnis kopieren
+echo.
+echo  [...] Kopiere Release-Dateien ins Hauptverzeichnis...
+if exist "..\EVE_Toolbox.exe" del "..\EVE_Toolbox.exe" >nul 2>&1
+if exist "..\_internal" rmdir /s /q "..\_internal" >nul 2>&1
+xcopy "dist\EVE_Toolbox\*" "..\" /E /Y /Q >nul 2>&1
+if errorlevel 1 (
+    echo  [FEHLER] Kopieren fehlgeschlagen!
+) else (
+    echo  [  OK ] EVE_Toolbox.exe aktualisiert
+    echo  [  OK ] _internal\ aktualisiert
+)
+echo.
+pause

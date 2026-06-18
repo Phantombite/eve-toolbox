@@ -230,11 +230,8 @@ def download_and_install(info: dict, progress_callback=None) -> tuple[bool, str]
     tmp_zip     = BACKUP_DIR / "update_download.zip"
 
     try:
-        # ── Schritt 1: Backup ────────────────────────────────
-        _log.info("Erstelle Backup vor Update...")
-        if progress_callback: progress_callback(5)
-        if not create_backup():
-            _log.warning("Backup fehlgeschlagen — Update wird trotzdem versucht")
+        # ── Schritt 1: Backup (wird von main.py erledigt) ───
+        # Kein doppeltes Backup hier
         if progress_callback: progress_callback(15)
 
         # ── Schritt 2: Download ──────────────────────────────

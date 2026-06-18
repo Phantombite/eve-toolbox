@@ -30,11 +30,10 @@ GITHUB_USER     = "phantombite"
 GITHUB_REPO     = "eve-toolbox"
 GITHUB_BRANCH   = "main"
 
-# URL zur Checksummen-Datei auf GitHub
-CHECKSUMS_URL   = (
-    f"https://raw.githubusercontent.com/{GITHUB_USER}/"
-    f"{GITHUB_REPO}/{GITHUB_BRANCH}/checksums.json"
-)
+# CHECKSUMS_URL wird zur Laufzeit aus lokaler version.json gebaut
+# Damit prüft jede Version gegen ihre eigene checksums.json
+# Kein falsches Reparieren wenn neuere Version auf GitHub liegt
+CHECKSUMS_URL   = None  # wird in _fetch_checksums() gesetzt
 
 # URL zum öffentlichen Schlüssel für Dev-Token Verifikation
 PUBKEY_URL      = (
@@ -153,17 +152,29 @@ def _check_dev_token() -> bool:
 
 def _fetch_checksums() -> dict | None:
     """
-    Lädt checksums.json von GitHub.
-    Gibt dict zurück oder None wenn nicht erreichbar.
+    Lädt checksums.json von GitHub fuer die aktuell installierte Version.
+    Verwendet den Git-Tag der lokalen Version damit nicht gegen
+    eine neuere Version geprueft wird.
     """
     try:
-        req = Request(
-            CHECKSUMS_URL,
-            headers={"User-Agent": f"EVE-Toolbox/integrity"}
+        # Lokale Version aus version.json lesen
+        ver_file = APP_DIR / "version.json"
+        if ver_file.exists():
+            local_version = json.loads(ver_file.read_text(encoding="utf-8")).get("version", "main")
+        else:
+            local_version = "main"
+
+        # URL mit Version-Tag bauen
+        url = (
+            f"https://raw.githubusercontent.com/{GITHUB_USER}/"
+            f"{GITHUB_REPO}/v{local_version}/checksums.json"
         )
+        _log.debug(f"Lade Checksums fuer v{local_version}: {url}")
+
+        req = Request(url, headers={"User-Agent": f"EVE-Toolbox/integrity"})
         with urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-        _log.debug(f"Checksums geladen: {len(data)} Einträge")
+        _log.debug(f"Checksums geladen: {len(data)} Eintraege")
         return data
     except (URLError, HTTPError) as e:
         _log.warning(f"GitHub nicht erreichbar: {e}")
@@ -190,9 +201,7 @@ def _hash_file(path: Path) -> str:
         data = f.read()
 
     if is_text:
-        data = data.replace(b"
-", b"
-")
+        data = data.replace(b'\r\n', b'\n')
 
     sha.update(data)
     return sha.hexdigest()
@@ -218,15 +227,17 @@ def _get_relative_key(path: Path) -> str:
 
 # ── Datei von GitHub wiederherstellen ────────────────────────
 
-def _restore_file(rel_key: str, progress_callback=None) -> bool:
+def _restore_file(rel_key: str, progress_callback=None, version: str = None) -> bool:
     """
-    Stellt eine einzelne Datei von GitHub wieder her.
+    Stellt eine einzelne Datei vom versionierten GitHub Tag wieder her.
     rel_key = z.B. "eve_toolbox/core/config.py"
+    version = z.B. "0.4.1" — wird als Tag v0.4.1 genutzt
     """
-    # GitHub Raw URL aufbauen
+    # Versionierten Tag nutzen damit immer die richtige Version wiederhergestellt wird
+    tag = f"v{version}" if version else GITHUB_BRANCH
     url = (
         f"https://raw.githubusercontent.com/{GITHUB_USER}/"
-        f"{GITHUB_REPO}/{GITHUB_BRANCH}/{rel_key}"
+        f"{GITHUB_REPO}/{tag}/{rel_key}"
     )
 
     target = APP_DIR / rel_key.replace("/", os.sep)
@@ -284,6 +295,15 @@ def run_check(progress_callback=None) -> IntegrityResult:
 
     # ── Schritt 2: Checksums von GitHub laden ─────────────────
     _progress(10, "Lade Prüfsummen von GitHub...")
+
+    # Lokale Version lesen fuer versionierte URLs
+    try:
+        ver_file = APP_DIR / "version.json"
+        local_version = json.loads(ver_file.read_text(encoding="utf-8")).get("version", "main")
+    except Exception:
+        local_version = "main"
+    _log.debug(f"Lokale Version: {local_version}")
+
     checksums = _fetch_checksums()
 
     if checksums is None:
@@ -343,7 +363,7 @@ def run_check(progress_callback=None) -> IntegrityResult:
             pct = 70 + int(i / len(corrupted) * 25)
             _progress(pct, f"Repariere {rel_key.split('/')[-1]}...")
 
-            if _restore_file(rel_key):
+            if _restore_file(rel_key, version=local_version):
                 result.files_fixed += 1
                 result.files_ok    += 1
                 _log.info(f"Repariert: {rel_key}")
