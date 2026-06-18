@@ -215,6 +215,86 @@ def _restore_file(rel_key: str, version: str) -> bool:
 
 # ── Hauptfunktion ─────────────────────────────────────────────
 
+# ── Kritische Dateien für Mini-Check ─────────────────────────
+CRITICAL_FILES = [
+    "eve_toolbox/core/updater.py",
+    "eve_toolbox/core/integrity.py",
+    "eve_toolbox/main.py",
+]
+
+
+def mini_check(progress_callback=None) -> IntegrityResult:
+    """
+    Schneller Check nur der kritischen Dateien (updater, integrity, main).
+    Läuft vor dem Update-Check damit der Updater immer funktionsfähig ist.
+    Repariert sofort ohne Neustart — Python-Dateien können live ersetzt werden.
+    """
+    result = IntegrityResult()
+
+    def _progress(pct: int, status: str):
+        if progress_callback:
+            progress_callback(pct, status)
+
+    _log.info("=== Mini-Integritätscheck gestartet ===")
+    _progress(0, "Prüfe kritische Dateien...")
+
+    local_version = _get_local_version()
+    _log.info(f"Lokale Version: {local_version}")
+
+    # Checksums laden
+    checksums = _fetch_checksums(local_version)
+    if checksums is None:
+        result.offline = True
+        _log.warning("Offline — Mini-Check nicht möglich")
+        _progress(100, "Offline")
+        return result
+
+    corrupted = []
+    for rel_key in CRITICAL_FILES:
+        result.files_checked += 1
+        local_path = APP_DIR / rel_key.replace("/", os.sep)
+
+        if not local_path.exists():
+            _log.warning(f"FEHLT: {rel_key}")
+            corrupted.append(rel_key)
+            continue
+
+        expected = checksums.get(rel_key)
+        if expected is None:
+            result.files_ok += 1
+            continue
+
+        actual = _hash_file(local_path)
+        if actual != expected:
+            _log.warning(f"DEFEKT: {rel_key}")
+            _log.debug(f"  Erwartet: {expected}")
+            _log.debug(f"  Gefunden: {actual}")
+            corrupted.append(rel_key)
+        else:
+            result.files_ok += 1
+
+    if corrupted:
+        _log.info(f"Mini-Check: {len(corrupted)} kritische Datei(en) werden repariert...")
+        result.passed = False
+        for rel_key in corrupted:
+            _progress(50, f"Repariere {rel_key.split('/')[-1]}...")
+            if _restore_file(rel_key, local_version):
+                result.files_fixed += 1
+                result.files_ok += 1
+                _log.info(f"Repariert: {rel_key}")
+            else:
+                result.files_failed.append(rel_key)
+        if not result.files_failed:
+            result.passed = True
+            _log.info("Mini-Check: Alle kritischen Dateien repariert")
+    else:
+        _log.info("Mini-Check: Alle kritischen Dateien OK")
+
+    _progress(100, "Kritische Dateien OK")
+    _log.info("=== Mini-Integritätscheck abgeschlossen ===")
+    return result
+
+
 def run_check(progress_callback=None) -> IntegrityResult:
     result = IntegrityResult()
 

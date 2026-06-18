@@ -30,6 +30,9 @@ import threading
 import shutil
 import zipfile
 import os
+import sys
+import subprocess
+import time
 from pathlib import Path
 from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
@@ -311,15 +314,24 @@ def download_and_install(info: dict, progress_callback=None) -> tuple[bool, str]
         # ── Installieren ──────────────────────────────────────
         _log.info("Installiere Update...")
 
-        # Alte Dateien löschen
+        # eve_toolbox\ Quellcode direkt ersetzen (kein Neustart nötig)
         if EVE_TOOLBOX_DIR.exists():
             shutil.rmtree(EVE_TOOLBOX_DIR)
-        if INTERNAL_DIR.exists():
-            shutil.rmtree(INTERNAL_DIR)
-        if EXE_FILE.exists():
-            EXE_FILE.unlink()
 
-        # ZIP entpacken
+        # EXE und _internal umbenennen statt löschen
+        # (können nicht gelöscht werden während sie laufen)
+        old_exe      = APP_DIR / "EVE_Toolbox_old.exe"
+        old_internal = APP_DIR / "_internal_old"
+
+        if EXE_FILE.exists():
+            EXE_FILE.rename(old_exe)
+            _log.info("EVE_Toolbox.exe → EVE_Toolbox_old.exe")
+
+        if INTERNAL_DIR.exists():
+            INTERNAL_DIR.rename(old_internal)
+            _log.info("_internal\\ → _internal_old\\")
+
+        # ZIP entpacken — neue EXE + _internal + eve_toolbox\
         with zipfile.ZipFile(tmp_zip, "r") as z:
             z.extractall(APP_DIR)
 
@@ -359,7 +371,12 @@ def download_and_install(info: dict, progress_callback=None) -> tuple[bool, str]
 
         _prog(100)
         _log.info(f"Update v{new_version} erfolgreich installiert")
-        return True, f"Update auf v{new_version} erfolgreich. Bitte App neu starten."
+
+        # Neustart — neue EXE starten, alte beendet sich
+        _log.info("Starte neu mit neuer Version...")
+        _restart_app()
+
+        return True, f"Update auf v{new_version} erfolgreich."
 
     except Exception as e:
         _log.error(f"Update fehlgeschlagen: {e}")

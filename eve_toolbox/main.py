@@ -93,17 +93,97 @@ def main():
 
     def _run_startup():
         log.debug("Startup-Sequenz gestartet")
-        splash.set_status(t("splash.initializing"), 10)
+        splash.set_status(t("splash.initializing"), 5)
         app.processEvents()
 
-        # ── Integritätscheck ──────────────────────────────────
+        # ── Alte _old Dateien vom letzten Update löschen ──────
+        updater.cleanup_old_files()
+
+        # ── Schritt 1: Mini-Integritätscheck (nur kritische Dateien) ──
+        # Stellt sicher dass updater.py, integrity.py und main.py
+        # immer funktionsfähig sind bevor der Update-Check läuft.
         splash.set_phase("integrity")
-        splash.set_status(t("splash.integrity_start"), 10)
+        splash.set_status("Prüfe kritische Dateien...", 8)
+        app.processEvents()
+
+        def _mini_progress(pct: int, status: str):
+            mapped = 8 + int(pct * 0.12)
+            splash.set_status(status, mapped)
+            app.processEvents()
+
+        log.info("Starte Mini-Integritätscheck...")
+        mini_result = integrity.mini_check(progress_callback=_mini_progress)
+        if mini_result.files_fixed:
+            log.info(f"Mini-Check: {mini_result.files_fixed} kritische Datei(en) repariert")
+        else:
+            log.info("Mini-Check: OK")
+
+        app.processEvents()
+
+        # ── Schritt 2: Update-Check ────────────────────────────
+        check_updates = s.get("update_on_start", True)
+        auto_install  = s.get("update_auto_install", True)
+
+        if not check_updates:
+            log.debug("Update-Check deaktiviert")
+        else:
+            splash.set_phase("checking")
+            splash.set_status(t("splash.checking_updates"), 22)
+            app.processEvents()
+
+            log.debug("Prüfe auf Updates...")
+            info = updater.check_sync()
+
+            if info:
+                log.info(f"Update verfügbar: v{info['version']}")
+                splash.set_status(t("splash.update_found", version=info["version"]), 30)
+                app.processEvents()
+
+                if auto_install:
+                    splash.set_phase("installing")
+                    splash.set_status(t("splash.creating_backup"), 35)
+                    app.processEvents()
+
+                    log.info("Erstelle Backup...")
+                    updater.create_backup()
+
+                    log.info(f"Installiere Update v{info['version']}...")
+                    splash.set_status(t("splash.installing", version=info["version"]), 40)
+                    app.processEvents()
+
+                    # download_and_install → startet neu nach Erfolg (kehrt nicht zurück)
+                    ok, msg = updater.download_and_install(
+                        info,
+                        progress_callback=lambda pct: (
+                            splash.set_status(
+                                t("splash.installing", version=info["version"]) + f" {pct}%",
+                                40 + int(pct * 0.45)
+                            ),
+                            app.processEvents()
+                        )
+                    )
+
+                    if not ok:
+                        log.error(f"Update fehlgeschlagen: {msg}")
+                        splash.set_status(t("splash.failed", error=msg), 80)
+                        _add_update_notif(window, info, installed=False, failed=True)
+                        app.processEvents()
+                else:
+                    _add_update_notif(window, info, installed=False)
+                    splash.set_status(t("splash.no_auto_install"), 80)
+                    app.processEvents()
+            else:
+                log.debug("Kein Update verfügbar")
+                splash.set_status(t("splash.no_update"), 22)
+                app.processEvents()
+
+        # ── Schritt 3: Voller Integritätscheck ────────────────
+        splash.set_phase("integrity")
+        splash.set_status(t("splash.integrity_start"), 25)
         app.processEvents()
 
         def _integrity_progress(pct: int, status: str):
-            # Integrity läuft von 10-40% im Gesamtfortschritt
-            mapped = 10 + int(pct * 0.30)
+            mapped = 25 + int(pct * 0.55)
             splash.set_status(status, mapped)
             app.processEvents()
 
@@ -112,89 +192,22 @@ def main():
 
         if int_result.dev_mode:
             log.info("Dev-Modus: Integritätscheck übersprungen")
-            splash.set_status(t("splash.integrity_token"), 40)
+            splash.set_status(t("splash.integrity_token"), 80)
         elif int_result.offline:
             log.warning("Offline: Integritätscheck übersprungen")
-            splash.set_status(t("splash.integrity_offline"), 40)
+            splash.set_status(t("splash.integrity_offline"), 80)
         elif int_result.files_failed:
             log.error(f"Integritätscheck: {len(int_result.files_failed)} Fehler")
-            splash.set_status(t("splash.integrity_failed", n=len(int_result.files_failed)), 40)
+            splash.set_status(t("splash.integrity_failed", n=len(int_result.files_failed)), 80)
         elif int_result.files_fixed:
             log.info(f"Integritätscheck: {int_result.files_fixed} Dateien repariert")
-            splash.set_status(t("splash.integrity_fixed", n=int_result.files_fixed), 40)
+            splash.set_status(t("splash.integrity_fixed", n=int_result.files_fixed), 80)
         else:
             log.info("Integritätscheck: Alle Dateien OK")
-            splash.set_status(t("splash.integrity_ok"), 40)
+            splash.set_status(t("splash.integrity_ok"), 80)
 
         app.processEvents()
-
-        # ── Update-Check ──────────────────────────────────────
-        check_updates = s.get("update_on_start", True)
-        auto_install  = s.get("update_auto_install", True)
-
-        if not check_updates:
-            log.debug("Update-Check deaktiviert")
-            splash.set_status(t("splash.starting"), 90)
-            app.processEvents()
-            splash.finish()
-            return
-
-        splash.set_phase("checking")
-        splash.set_status(t("splash.checking_updates"), 45)
-        app.processEvents()
-
-        log.debug("Prüfe auf Updates...")
-        info = updater.check_sync()
-
-        if not info:
-            log.debug("Kein Update verfügbar")
-            splash.set_status(t("splash.no_update"), 80)
-            app.processEvents()
-            QTimer.singleShot(400, splash.finish)
-            return
-
-        log.info(f"Update verfügbar: v{info['version']}")
-        splash.set_status(t("splash.update_found", version=info["version"]), 40)
-        app.processEvents()
-
-        if not auto_install:
-            _add_update_notif(window, info, installed=False)
-            splash.set_status(t("splash.no_auto_install"), 80)
-            app.processEvents()
-            QTimer.singleShot(600, splash.finish)
-            return
-
-        splash.set_phase("installing")
-        splash.set_status(t("splash.creating_backup"), 60)
-        app.processEvents()
-
-        log.info("Erstelle Backup...")
-        updater.create_backup()
-        splash.set_status(t("splash.installing", version=info["version"]), 70)
-        app.processEvents()
-
-        log.info(f"Installiere Update v{info['version']}...")
-        ok, msg = updater.download_and_install(
-            info,
-            progress_callback=lambda pct: (
-                splash.set_status(t("splash.installing", version=info["version"]) + f" {pct}%",
-                                  50 + pct // 5),
-                app.processEvents()
-            )
-        )
-
-        if ok:
-            log.info(f"Update v{info['version']} erfolgreich installiert")
-            splash.set_phase("done")
-            splash.set_status(t("splash.installed", version=info["version"]), 100)
-            _add_update_notif(window, info, installed=True)
-        else:
-            log.error(f"Update fehlgeschlagen: {msg}")
-            splash.set_status(t("splash.failed", error=msg), 80)
-            _add_update_notif(window, info, installed=False, failed=True)
-
-        app.processEvents()
-        QTimer.singleShot(1200, splash.finish)
+        QTimer.singleShot(400, splash.finish)
 
     def _add_update_notif(win, info: dict, installed: bool, failed: bool = False):
         notifs = win._notifications
