@@ -176,11 +176,25 @@ def _fetch_checksums() -> dict | None:
 # ── Lokale Datei-Hashes ───────────────────────────────────────
 
 def _hash_file(path: Path) -> str:
-    """Berechnet SHA256 Hash einer Datei."""
-    sha = hashlib.sha256()
+    """
+    Berechnet SHA256 Hash einer Datei.
+    Normalisiert Zeilenenden (CRLF -> LF) fuer Textdateien
+    damit Hashes auf Windows und Linux identisch sind.
+    Binaerdateien (PNG etc.) werden unveraendert gehasht.
+    """
+    sha  = hashlib.sha256()
+    TEXT = {".py", ".json", ".txt", ".md", ".sh", ".bat", ".iss", ".spec"}
+    is_text = path.suffix.lower() in TEXT
+
     with open(path, "rb") as f:
-        while chunk := f.read(65536):
-            sha.update(chunk)
+        data = f.read()
+
+    if is_text:
+        data = data.replace(b"
+", b"
+")
+
+    sha.update(data)
     return sha.hexdigest()
 
 
