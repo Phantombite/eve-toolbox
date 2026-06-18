@@ -92,12 +92,26 @@ echo  Aktuelle Version: !CURRENT_VERSION!
 echo.
 
 :ask_version
+echo  Aktuelle Version beibehalten? (y/n)
+set KEEP_VERSION=
+set /p KEEP_VERSION="  > "
+if /i "!KEEP_VERSION!"=="y" (
+    set NEW_VERSION=!CURRENT_VERSION!
+    echo  [  OK ] Version bleibt !CURRENT_VERSION!
+    goto :do_version
+)
+if /i not "!KEEP_VERSION!"=="n" (
+    echo  Bitte y oder n eingeben.
+    goto :ask_version
+)
+
+:ask_new_version
 set NEW_VERSION=
 set /p NEW_VERSION="  Neue Versionsnummer (z.B. 0.5.0) > "
-if "!NEW_VERSION!"=="" ( echo  Bitte Versionsnummer eingeben. & goto :ask_version )
+if "!NEW_VERSION!"=="" ( echo  Bitte Versionsnummer eingeben. & goto :ask_new_version )
 
-python -c "import re,sys,json; v='!NEW_VERSION!'; cur=json.load(open('version.json'))['version']; ok=bool(re.match(r'^[0-9]+[.][0-9]+[.][0-9]+$',v)) and tuple(int(x) for x in v.split('.'))>tuple(int(x) for x in cur.split('.')); sys.exit(0 if ok else 1)" >nul 2>&1
-if errorlevel 1 ( echo  Muss hoeher als !CURRENT_VERSION! sein und Format x.y.z & goto :ask_version )
+python -c "import re,sys,json; v='!NEW_VERSION!'; cur=json.load(open('version.json'))['version']; ok=bool(re.match(r'^[0-9]+[.][0-9]+[.][0-9]+$',v)) and tuple(int(x) for x in v.split('.'))>=tuple(int(x) for x in cur.split('.')); sys.exit(0 if ok else 1)" >nul 2>&1
+if errorlevel 1 ( echo  Muss mindestens !CURRENT_VERSION! sein und Format x.y.z & goto :ask_new_version )
 
 echo.
 echo  Aktuelle Version : !CURRENT_VERSION!
@@ -108,7 +122,7 @@ echo.
 set C=
 set /p C="  So setzen? (y/n) > "
 if /i "!C!"=="y" goto :do_version
-if /i "!C!"=="n" goto :ask_version
+if /i "!C!"=="n" goto :ask_new_version
 echo  Bitte y oder n eingeben.
 goto :ask_version_ok
 
@@ -210,21 +224,39 @@ echo  ^|  Schritt 4/5 - ZIP erstellen + EXE kopieren   ^|
 echo  +------------------------------------------------+
 echo.
 
-:: ZIP erstellen
+:: ZIP erstellen - nur Quellcode, nicht den PyInstaller Output
 if exist "eve_toolbox.zip" del "eve_toolbox.zip" >nul 2>&1
 echo  [...] Erstelle eve_toolbox.zip...
 
+set "ROOT=%CD%"
 set "DIST=%CD%\build\dist\EVE_Toolbox"
 > _zip_tmp.py echo import zipfile
 >> _zip_tmp.py echo from pathlib import Path
->> _zip_tmp.py echo dist = Path(r'!DIST!')
->> _zip_tmp.py echo out  = Path('eve_toolbox.zip')
+>> _zip_tmp.py echo root  = Path(r'!ROOT!')
+>> _zip_tmp.py echo dist  = Path(r'!DIST!')
+>> _zip_tmp.py echo out   = Path('eve_toolbox.zip')
+>> _zip_tmp.py echo SKIP_DIRS = {'__pycache__', 'tokens', '.git'}
+>> _zip_tmp.py echo SKIP_EXT  = {'.pyc', '.pyo', '.log', '.zip'}
 >> _zip_tmp.py echo count = 0
 >> _zip_tmp.py echo with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as z:
+>> _zip_tmp.py echo     # 1. eve_toolbox Quellcode
+>> _zip_tmp.py echo     src = root / 'eve_toolbox'
+>> _zip_tmp.py echo     for f in src.rglob('*'):
+>> _zip_tmp.py echo         if not f.is_file(): continue
+>> _zip_tmp.py echo         if any(s in f.parts for s in SKIP_DIRS): continue
+>> _zip_tmp.py echo         if f.suffix.lower() in SKIP_EXT: continue
+>> _zip_tmp.py echo         z.write(f, Path('eve_toolbox') / f.relative_to(src))
+>> _zip_tmp.py echo         count += 1
+>> _zip_tmp.py echo     # 2. EXE und _internal vom Build
 >> _zip_tmp.py echo     for f in dist.rglob('*'):
->> _zip_tmp.py echo         if f.is_file():
->> _zip_tmp.py echo             arc = Path('eve_toolbox') / f.relative_to(dist)
->> _zip_tmp.py echo             z.write(f, arc)
+>> _zip_tmp.py echo         if not f.is_file(): continue
+>> _zip_tmp.py echo         z.write(f, f.relative_to(dist))
+>> _zip_tmp.py echo         count += 1
+>> _zip_tmp.py echo     # 3. Einzelne Dateien aus Root
+>> _zip_tmp.py echo     for fname in ('version.json', 'checksums.json', 'dev_pubkey.pem'):
+>> _zip_tmp.py echo         fp = root / fname
+>> _zip_tmp.py echo         if fp.exists():
+>> _zip_tmp.py echo             z.write(fp, fname)
 >> _zip_tmp.py echo             count += 1
 >> _zip_tmp.py echo print(f'{count} Dateien gepackt')
 python _zip_tmp.py

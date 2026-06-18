@@ -2,16 +2,16 @@
 EVE Toolbox — Integritätsprüfung.
 
 Ablauf:
-1. Lädt checksums.json von GitHub
-2. Berechnet SHA256 für alle lokalen Dateien
-3. Vergleicht mit GitHub-Hashes
-4. Stellt manipulierte/fehlende Dateien automatisch wieder her
-5. Dev-Token vorhanden? → Prüfung wird übersprungen
+1. Dev-Token prüfen → bei gültigem Token sofort zurück
+2. checksums.json vom versionierten GitHub Tag laden
+3. Alle lokalen Dateien hashen und vergleichen
+4. Manipulierte/fehlende Dateien vom gleichen Tag wiederherstellen
+5. Ergebnis zurückgeben
 
-Dev-Token Erklärung:
-    Nur phantombite kann ein gültiges Token erstellen (privater Schlüssel).
-    Das Token wird mit generate_dev_token.bat erzeugt.
-    Ohne Token läuft immer der volle Check — für alle Nutzer.
+Dev-Token:
+    Nur phantombite kann ein gültiges Token erstellen.
+    Das Token wird mit security_generator.bat erzeugt.
+    Ohne Token läuft immer der volle Check.
 """
 from core import logger as _logger
 _log = _logger.get("integrity")
@@ -19,24 +19,17 @@ _log = _logger.get("integrity")
 import hashlib
 import json
 import os
-import shutil
-import zipfile
 from pathlib import Path
 from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
 
 # ── Konfiguration ─────────────────────────────────────────────
-GITHUB_USER     = "phantombite"
+GITHUB_USER     = "Phantombite"   # Gross-P — GitHub Raw URLs sind case-sensitive!
 GITHUB_REPO     = "eve-toolbox"
 GITHUB_BRANCH   = "main"
 
-# CHECKSUMS_URL wird zur Laufzeit aus lokaler version.json gebaut
-# Damit prüft jede Version gegen ihre eigene checksums.json
-# Kein falsches Reparieren wenn neuere Version auf GitHub liegt
-CHECKSUMS_URL   = None  # wird in _fetch_checksums() gesetzt
-
-# URL zum öffentlichen Schlüssel für Dev-Token Verifikation
-PUBKEY_URL      = (
+# URL zum öffentlichen Schlüssel (immer von main)
+PUBKEY_URL = (
     f"https://raw.githubusercontent.com/{GITHUB_USER}/"
     f"{GITHUB_REPO}/{GITHUB_BRANCH}/dev_pubkey.pem"
 )
@@ -44,16 +37,16 @@ PUBKEY_URL      = (
 REQUEST_TIMEOUT = 10
 
 # Lokale Pfade
-# APP_DIR = Ordner der die eve_toolbox/ Unterordner enthält
-# __file__ = EVE_Toolbox/eve_toolbox/core/integrity.py
-# .parent       = core/
-# .parent.parent = eve_toolbox/
-# .parent.parent.parent = EVE_Toolbox/  <-- das ist APP_DIR
-APP_DIR         = Path(__file__).resolve().parent.parent.parent
-EVE_DIR         = APP_DIR / "eve_toolbox"
-DEV_TOKEN_PATH  = APP_DIR / "dev_mode.flag"
+# __file__ = APP_DIR/eve_toolbox/core/integrity.py
+# .parent.parent.parent = APP_DIR
+APP_DIR        = Path(__file__).resolve().parent.parent.parent
+EVE_DIR        = APP_DIR / "eve_toolbox"
+DEV_TOKEN_PATH = APP_DIR / "dev_mode.flag"
 
-# Dateien die NICHT geprüft werden (Nutzerdaten, Caches etc.)
+# Dateierweiterungen die als Text behandelt werden (Zeilenenden normalisieren)
+TEXT_EXTENSIONS = {".py", ".json", ".txt", ".md", ".sh", ".bat", ".spec"}
+
+# Pfadteile/Muster die beim Prüfen ignoriert werden
 IGNORE_PATTERNS = {
     "__pycache__",
     ".pyc",
@@ -66,20 +59,18 @@ IGNORE_PATTERNS = {
 }
 
 
-# ── Ergebnis-Klassen ──────────────────────────────────────────
+# ── Ergebnis-Klasse ───────────────────────────────────────────
 
 class IntegrityResult:
-    """Ergebnis einer Integritätsprüfung."""
-
     def __init__(self):
-        self.passed        = True    # Alles OK
-        self.dev_mode      = False   # Dev-Token gefunden und gültig
-        self.offline       = False   # GitHub nicht erreichbar
-        self.files_checked = 0       # Anzahl geprüfter Dateien
-        self.files_ok      = 0       # Dateien OK
-        self.files_fixed   = 0       # Dateien repariert
-        self.files_failed  = []      # Dateien die nicht repariert werden konnten
-        self.error         = None    # Allgemeiner Fehler (String)
+        self.passed        = True
+        self.dev_mode      = False
+        self.offline       = False
+        self.files_checked = 0
+        self.files_ok      = 0
+        self.files_fixed   = 0
+        self.files_failed  = []
+        self.error         = None
 
     def __str__(self):
         if self.dev_mode:
@@ -94,87 +85,90 @@ class IntegrityResult:
                 + (f", {self.files_fixed} repariert" if self.files_fixed else ""))
 
 
-# ── Dev-Token Prüfung ─────────────────────────────────────────
+# ── Hashing ───────────────────────────────────────────────────
+
+def _hash_data(data: bytes, is_text: bool) -> str:
+    """
+    SHA256 Hash von Bytes.
+    Textdateien: CRLF → LF normalisieren damit Hashes auf
+    Windows und Linux identisch sind.
+    Binärdateien: unveränderter Hash.
+    """
+    if is_text:
+        data = data.replace(b"\r\n", b"\n")
+    return hashlib.sha256(data).hexdigest()
+
+
+def _hash_file(path: Path) -> str:
+    """Hash einer lokalen Datei."""
+    is_text = path.suffix.lower() in TEXT_EXTENSIONS
+    with open(path, "rb") as f:
+        return _hash_data(f.read(), is_text)
+
+
+def _hash_bytes(data: bytes, filename: str) -> str:
+    """Hash von Bytes (z.B. heruntergeladene Datei)."""
+    suffix = Path(filename).suffix.lower()
+    is_text = suffix in TEXT_EXTENSIONS
+    return _hash_data(data, is_text)
+
+
+def _should_ignore(path: Path) -> bool:
+    path_str = str(path)
+    return any(p in path_str for p in IGNORE_PATTERNS)
+
+
+def _get_relative_key(path: Path) -> str:
+    return str(path.relative_to(APP_DIR)).replace("\\", "/")
+
+
+# ── Dev-Token ─────────────────────────────────────────────────
 
 def _check_dev_token() -> bool:
-    """
-    Prüft ob ein gültiges Dev-Token vorhanden ist.
-    Token = RSA Signatur der Nachricht "EVEToolbox-DevMode" mit privatem Schlüssel.
-    Verifikation mit öffentlichem Schlüssel von GitHub.
-    """
     if not DEV_TOKEN_PATH.exists():
         return False
-
     try:
-        # Versuche cryptography zu importieren
         from cryptography.hazmat.primitives import hashes, serialization
         from cryptography.hazmat.primitives.asymmetric import padding
         from cryptography.exceptions import InvalidSignature
         import base64
     except ImportError:
-        # cryptography nicht installiert — Token kann nicht geprüft werden
         _log.warning("cryptography nicht installiert — Dev-Token kann nicht geprüft werden")
         return False
-
     try:
-        # Öffentlichen Schlüssel von GitHub laden
         req = Request(PUBKEY_URL, headers={"User-Agent": f"EVE-Toolbox/integrity"})
         with urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
             pubkey_pem = resp.read()
-
-        pubkey = serialization.load_pem_public_key(pubkey_pem)
-
-        # Token lesen (Base64 kodierte Signatur)
+        pubkey    = serialization.load_pem_public_key(pubkey_pem)
         token_b64 = DEV_TOKEN_PATH.read_text(encoding="utf-8").strip()
         signature = base64.b64decode(token_b64)
-
-        # Signatur prüfen
-        message = b"EVEToolbox-DevMode"
-        pubkey.verify(
-            signature,
-            message,
-            padding.PKCS1v15(),
-            hashes.SHA256()
-        )
-
+        pubkey.verify(signature, b"EVEToolbox-DevMode", padding.PKCS1v15(), hashes.SHA256())
         _log.info("Dev-Token gültig — Integritätsprüfung übersprungen")
         return True
-
-    except InvalidSignature:
-        _log.warning("Dev-Token UNGÜLTIG — führe vollen Integritätscheck durch")
-        return False
     except Exception as e:
-        _log.warning(f"Dev-Token Prüfung fehlgeschlagen: {e} — führe vollen Check durch")
+        _log.warning(f"Dev-Token Prüfung: {e} — führe vollen Check durch")
         return False
 
 
-# ── Checksummen laden ─────────────────────────────────────────
+# ── Checksums von GitHub ──────────────────────────────────────
 
-def _fetch_checksums() -> dict | None:
+def _fetch_checksums(version: str) -> dict | None:
     """
-    Lädt checksums.json von GitHub fuer die aktuell installierte Version.
-    Verwendet den Git-Tag der lokalen Version damit nicht gegen
-    eine neuere Version geprueft wird.
+    Lädt checksums.json vom versionierten GitHub Tag.
+    Damit wird immer gegen die exakt installierte Version geprüft —
+    niemals gegen eine neuere Version auf main.
     """
+    tag = f"v{version}" if version != "main" else GITHUB_BRANCH
+    url = (
+        f"https://raw.githubusercontent.com/{GITHUB_USER}/"
+        f"{GITHUB_REPO}/{tag}/checksums.json"
+    )
+    _log.debug(f"Lade checksums.json von Tag {tag}: {url}")
     try:
-        # Lokale Version aus version.json lesen
-        ver_file = APP_DIR / "version.json"
-        if ver_file.exists():
-            local_version = json.loads(ver_file.read_text(encoding="utf-8")).get("version", "main")
-        else:
-            local_version = "main"
-
-        # URL mit Version-Tag bauen
-        url = (
-            f"https://raw.githubusercontent.com/{GITHUB_USER}/"
-            f"{GITHUB_REPO}/v{local_version}/checksums.json"
-        )
-        _log.debug(f"Lade Checksums fuer v{local_version}: {url}")
-
-        req = Request(url, headers={"User-Agent": f"EVE-Toolbox/integrity"})
+        req = Request(url, headers={"User-Agent": "EVE-Toolbox/integrity"})
         with urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-        _log.debug(f"Checksums geladen: {len(data)} Eintraege")
+        _log.debug(f"Checksums geladen: {len(data)} Einträge")
         return data
     except (URLError, HTTPError) as e:
         _log.warning(f"GitHub nicht erreichbar: {e}")
@@ -184,78 +178,36 @@ def _fetch_checksums() -> dict | None:
         return None
 
 
-# ── Lokale Datei-Hashes ───────────────────────────────────────
-
-def _hash_file(path: Path) -> str:
-    """
-    Berechnet SHA256 Hash einer Datei.
-    Normalisiert Zeilenenden (CRLF -> LF) fuer Textdateien
-    damit Hashes auf Windows und Linux identisch sind.
-    Binaerdateien (PNG etc.) werden unveraendert gehasht.
-    """
-    sha  = hashlib.sha256()
-    TEXT = {".py", ".json", ".txt", ".md", ".sh", ".bat", ".iss", ".spec"}
-    is_text = path.suffix.lower() in TEXT
-
-    with open(path, "rb") as f:
-        data = f.read()
-
-    if is_text:
-        data = data.replace(b'\r\n', b'\n')
-
-    sha.update(data)
-    return sha.hexdigest()
-
-
-def _should_ignore(path: Path) -> bool:
-    """Gibt True zurück wenn eine Datei nicht geprüft werden soll."""
-    path_str = str(path)
-    for pattern in IGNORE_PATTERNS:
-        if pattern in path_str:
-            return True
-    return False
-
-
-def _get_relative_key(path: Path) -> str:
-    """
-    Gibt den Schlüssel für checksums.json zurück.
-    Relativ zu APP_DIR, immer mit Forward-Slashes.
-    Beispiel: eve_toolbox/core/config.py
-    """
-    return str(path.relative_to(APP_DIR)).replace("\\", "/")
+def _get_local_version() -> str:
+    try:
+        ver_file = APP_DIR / "version.json"
+        return json.loads(ver_file.read_text(encoding="utf-8")).get("version", "main")
+    except Exception:
+        return "main"
 
 
 # ── Datei von GitHub wiederherstellen ────────────────────────
 
-def _restore_file(rel_key: str, progress_callback=None, version: str = None) -> bool:
+def _restore_file(rel_key: str, version: str) -> bool:
     """
-    Stellt eine einzelne Datei vom versionierten GitHub Tag wieder her.
-    rel_key = z.B. "eve_toolbox/core/config.py"
-    version = z.B. "0.4.1" — wird als Tag v0.4.1 genutzt
+    Stellt eine Datei vom exakt gleichen GitHub Tag wieder her.
+    Hasht die heruntergeladene Datei zur Verifikation.
     """
-    # Versionierten Tag nutzen damit immer die richtige Version wiederhergestellt wird
-    tag = f"v{version}" if version else GITHUB_BRANCH
+    tag = f"v{version}" if version != "main" else GITHUB_BRANCH
     url = (
         f"https://raw.githubusercontent.com/{GITHUB_USER}/"
         f"{GITHUB_REPO}/{tag}/{rel_key}"
     )
-
     target = APP_DIR / rel_key.replace("/", os.sep)
-
     try:
         _log.info(f"Stelle wieder her: {rel_key}")
         req = Request(url, headers={"User-Agent": "EVE-Toolbox/integrity"})
         with urlopen(req, timeout=30) as resp:
             content = resp.read()
-
-        # Verzeichnis anlegen falls nötig
         target.parent.mkdir(parents=True, exist_ok=True)
-
-        # Datei schreiben
         target.write_bytes(content)
         _log.info(f"Wiederhergestellt: {rel_key}")
         return True
-
     except Exception as e:
         _log.error(f"Wiederherstellung fehlgeschlagen für {rel_key}: {e}")
         return False
@@ -264,18 +216,6 @@ def _restore_file(rel_key: str, progress_callback=None, version: str = None) -> 
 # ── Hauptfunktion ─────────────────────────────────────────────
 
 def run_check(progress_callback=None) -> IntegrityResult:
-    """
-    Führt den kompletten Integritätscheck durch.
-
-    progress_callback(percent: int, status: str) — optionaler Fortschritts-Callback
-
-    Ablauf:
-    1. Dev-Token prüfen → bei gültigem Token sofort zurück
-    2. Checksums von GitHub laden → bei Offline sofort zurück
-    3. Alle lokalen Dateien hashen und vergleichen
-    4. Manipulierte/fehlende Dateien wiederherstellen
-    5. Ergebnis zurückgeben
-    """
     result = IntegrityResult()
 
     def _progress(pct: int, status: str):
@@ -285,46 +225,36 @@ def run_check(progress_callback=None) -> IntegrityResult:
     _log.info("=== Integritätscheck gestartet ===")
     _progress(0, "Starte Integritätscheck...")
 
-    # ── Schritt 1: Dev-Token prüfen ───────────────────────────
+    # ── Schritt 1: Dev-Token ──────────────────────────────────
     _progress(5, "Prüfe Dev-Token...")
     if _check_dev_token():
         result.dev_mode = True
-        _log.info("Dev-Modus aktiv — Check übersprungen")
         _progress(100, "Dev-Modus: Check übersprungen")
         return result
 
-    # ── Schritt 2: Checksums von GitHub laden ─────────────────
+    # ── Schritt 2: Lokale Version + Checksums laden ───────────
     _progress(10, "Lade Prüfsummen von GitHub...")
+    local_version = _get_local_version()
+    _log.info(f"Lokale Version: {local_version}")
 
-    # Lokale Version lesen fuer versionierte URLs
-    try:
-        ver_file = APP_DIR / "version.json"
-        local_version = json.loads(ver_file.read_text(encoding="utf-8")).get("version", "main")
-    except Exception:
-        local_version = "main"
-    _log.debug(f"Lokale Version: {local_version}")
-
-    checksums = _fetch_checksums()
-
+    checksums = _fetch_checksums(local_version)
     if checksums is None:
         result.offline = True
         _log.warning("Offline — Integritätscheck nicht möglich, fahre fort")
         _progress(100, "Offline — Check übersprungen")
         return result
 
-    # ── Schritt 3: Lokale Dateien prüfen ──────────────────────
+    # ── Schritt 3: Dateien prüfen ─────────────────────────────
     _progress(20, "Prüfe Dateien...")
-
-    # Alle zu prüfenden Dateien aus checksums.json
     files_to_check = list(checksums.keys())
     total          = len(files_to_check)
 
     if total == 0:
-        _log.warning("Keine Dateien in checksums.json — überspringe")
+        _log.warning("Keine Dateien in checksums.json")
         _progress(100, "Keine Prüfsummen vorhanden")
         return result
 
-    corrupted = []   # Liste der manipulierten/fehlenden Dateien
+    corrupted = []
 
     for i, rel_key in enumerate(files_to_check):
         pct = 20 + int(i / total * 50)
@@ -332,7 +262,6 @@ def run_check(progress_callback=None) -> IntegrityResult:
 
         expected_hash = checksums[rel_key]
         local_path    = APP_DIR / rel_key.replace("/", os.sep)
-
         result.files_checked += 1
 
         if not local_path.exists():
@@ -348,13 +277,20 @@ def run_check(progress_callback=None) -> IntegrityResult:
 
         if actual_hash != expected_hash:
             _log.warning(f"MANIPULIERT: {rel_key}")
-            _log.debug(f"  Erwartet:  {expected_hash}")
-            _log.debug(f"  Gefunden:  {actual_hash}")
+            _log.debug(f"  Erwartet : {expected_hash}")
+            _log.debug(f"  Gefunden : {actual_hash}")
+            # Zusätzliche Debug-Info: Dateigröße und ob CRLF vorhanden
+            try:
+                raw = local_path.read_bytes()
+                has_crlf = b"\r\n" in raw
+                _log.debug(f"  Groesse  : {len(raw)} bytes | CRLF: {has_crlf}")
+            except Exception:
+                pass
             corrupted.append(rel_key)
         else:
             result.files_ok += 1
 
-    # ── Schritt 4: Manipulierte Dateien wiederherstellen ──────
+    # ── Schritt 4: Reparieren ─────────────────────────────────
     if corrupted:
         _log.info(f"{len(corrupted)} Datei(en) werden wiederhergestellt...")
         result.passed = False
@@ -363,7 +299,7 @@ def run_check(progress_callback=None) -> IntegrityResult:
             pct = 70 + int(i / len(corrupted) * 25)
             _progress(pct, f"Repariere {rel_key.split('/')[-1]}...")
 
-            if _restore_file(rel_key, version=local_version):
+            if _restore_file(rel_key, local_version):
                 result.files_fixed += 1
                 result.files_ok    += 1
                 _log.info(f"Repariert: {rel_key}")
@@ -371,7 +307,6 @@ def run_check(progress_callback=None) -> IntegrityResult:
                 result.files_failed.append(rel_key)
                 _log.error(f"Konnte nicht reparieren: {rel_key}")
 
-        # Wenn alle repariert: passed wieder True
         if not result.files_failed:
             result.passed = True
             _log.info("Alle Dateien erfolgreich repariert")
@@ -385,13 +320,13 @@ def run_check(progress_callback=None) -> IntegrityResult:
     return result
 
 
-# ── Checksummen generieren (lokal, für phantombite) ──────────
+# ── Checksummen generieren ────────────────────────────────────
 
 def generate_checksums(output_path: Path = None) -> dict:
     """
     Generiert checksums.json für alle Dateien in eve_toolbox/.
-    Wird von generate_checksums.bat aufgerufen.
-    Nur phantombite führt das aus — die Datei kommt dann auf GitHub.
+    WICHTIG: Verwendet die gleiche Hash-Logik wie beim Prüfen
+    (Zeilenenden-Normalisierung) damit Hashes immer übereinstimmen.
     """
     if output_path is None:
         output_path = APP_DIR / "checksums.json"
@@ -404,11 +339,10 @@ def generate_checksums(output_path: Path = None) -> dict:
             continue
         if _should_ignore(f):
             continue
-
         rel_key            = _get_relative_key(f)
-        checksums[rel_key] = _hash_file(f)
+        checksums[rel_key] = _hash_file(f)  # nutzt gleiche Normalisierung
 
-    # Auch version.json einschließen
+    # version.json einschließen
     version_file = APP_DIR / "version.json"
     if version_file.exists():
         checksums[_get_relative_key(version_file)] = _hash_file(version_file)
@@ -417,6 +351,5 @@ def generate_checksums(output_path: Path = None) -> dict:
         json.dumps(checksums, indent=2, ensure_ascii=False),
         encoding="utf-8"
     )
-
     print(f"checksums.json erstellt: {len(checksums)} Dateien")
     return checksums
