@@ -16,7 +16,7 @@
   "eve_toolbox/core/updater.py": "44739ecba2e7695519ebd3831a18de6e1d07db822d0b30f51551948ac5b0e025",
   "eve_toolbox/i18n/de.json": "61e9eaa5525fa9ecd47be4b7ccae8a9d2f0c6bc0b0e60c579e767e0f0c68f571",
   "eve_toolbox/i18n/en.json": "2fcd8e05d9584012d3f0d3084fc7241d5301b5b2adb97653302ad5b2ae0a9303",
-  "eve_toolbox/main.py": "742373f87c03e3c5b2dbb3a5dddfccd0f466a5206cb35f5d47d916374227d86e",
+  "eve_toolbox/main.py": "d73ad5e81aa4172554bac076541469f0a338821989f442082d338f4285cf448f",
   "eve_toolbox/modules/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
   "eve_toolbox/requirements.txt": "86242466040942ffff0a03d22784116801ad207ff1a25368c7b0737f3f461b13",
   "eve_toolbox/ui/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -27,10 +27,10 @@
   "eve_toolbox/ui/info_panel.py": "2a083f42421ef0329962ca4116f309a5a412cbcd2a5246c28026019de4961c08",
   "eve_toolbox/ui/main_window.py": "808f7f8f5b0cfe3478fd05b106a5642bcc4a6b0b21f7b0e0324acc643d6bae79",
   "eve_toolbox/ui/notifications_page.py": "e56bae39f0f826cf102d5fd01a55ce5400c622af5dcd5c3855b6831000747a24",
-  "eve_toolbox/ui/settings_page.py": "dbc400922bd3de649a0cec08ceaf66957ffdf38e365a775d3a2f2f9b7d80bb59",
+  "eve_toolbox/ui/settings_page.py": "a86afd1d5871fb82513f5781fcf5144fe2e71dfd0a9e9aa3a0f930b6cee0df6f",
   "eve_toolbox/ui/settings_panel.py": "28f5693c3c1635ee5e5ef5f6fab22d68123f032a608b0ebcb69c3621c714a628",
   "eve_toolbox/ui/splash_screen.py": "bd4f63777842e5ea40fba98db9b6128e5896c0489b2083bc40afa17774ebd9e7",
   "eve_toolbox/ui/topbar.py": "18633c676201f203eb80825bf11e3cce694a5d0383d49b4e8a3ea1ba0e08c7f2",
   "eve_toolbox/ui/welcome_screen.py": "cb2433b6b104bbb5e8bc8d56f1fcc1f411cf446a843281c4b646ac77105aaa73",
-  "version.json": "7118ecb5f3461e83a361a20d571de2c8a8ebfbfbe31449e9c58935e52b4b9c0a"
+  "version.json": "77e3e1bfaf0c8e6c370f52e7c6dc325109e73dcd6db9cafda0aef271798beff0"
 }

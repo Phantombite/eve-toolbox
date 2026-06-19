@@ -49,13 +49,30 @@ exit /b 1
 echo [OK] Python gefunden: %PYTHON_CMD%
 echo.
 
-:: PyQt6 prüfen
+:: PyQt6 pruefen
 "%PYTHON_CMD%" -c "import PyQt6" >nul 2>&1
 if %errorlevel% neq 0 (
     echo [INSTALL] Installiere PyQt6...
     "%PYTHON_CMD%" -m pip install PyQt6 --quiet
 ) else (
     echo [OK] PyQt6 vorhanden
+)
+
+echo.
+echo ------------------------------------------------
+echo  Vollstaendiger Start mit Integritaets-/Update-Check?
+echo  [j] = Ja  -  normaler Start, prueft gegen GitHub
+echo  [n] = Nein - Entwickler-Start, ueberspringt Checks
+echo ------------------------------------------------
+set CHECK_CHOICE=
+set /p CHECK_CHOICE="Auswahl (j/n) > "
+
+if /i "!CHECK_CHOICE!"=="n" (
+    set EVE_SKIP_CHECKS=1
+    echo [DEV] Integritaets-/Update-Check wird uebersprungen
+) else (
+    set EVE_SKIP_CHECKS=
+    echo [OK] Vollstaendiger Start mit Checks
 )
 
 :: Debug-Umgebungsvariable setzen

@@ -96,6 +96,17 @@ def main():
         splash.set_status(t("splash.initializing"), 5)
         app.processEvents()
 
+        # ── Dev: Checks überspringen wenn EVE_SKIP_CHECKS gesetzt ──
+        # Wird von debug.bat gesetzt damit lokale Entwicklung nicht
+        # gegen GitHub validiert wird (sonst würde jede lokale Änderung
+        # als "manipuliert" erkannt werden bevor sie gepusht ist).
+        if os.environ.get("EVE_SKIP_CHECKS") == "1":
+            log.warning("EVE_SKIP_CHECKS aktiv — Integritäts- und Update-Check übersprungen (DEV)")
+            splash.set_status("Dev-Modus: Checks übersprungen", 90)
+            app.processEvents()
+            QTimer.singleShot(300, splash.finish)
+            return
+
         # ── Alte _old Dateien vom letzten Update löschen ──────
         updater.cleanup_old_files()
 

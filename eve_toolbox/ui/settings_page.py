@@ -896,10 +896,13 @@ class PageAccounts(QWidget):
 
 
 class PageUpdates(QWidget):
+    _update_checked = pyqtSignal(object)  # Thread-sicheres Signal für Update-Check Ergebnis
+
     def __init__(self, settings: dict, parent=None):
         super().__init__(parent)
         self.settings    = settings
         self._remote_ver = None
+        self._update_checked.connect(self._on_update_checked)
         inner = QWidget()
         self._lay = QVBoxLayout(inner)
         self._lay.setContentsMargins(32, 24, 32, 24)
@@ -943,6 +946,14 @@ class PageUpdates(QWidget):
         self._check_btn.setFixedWidth(130)
         self._check_btn.clicked.connect(self._do_check)
         row_new.add_control(self._check_btn)
+
+        self._install_now_btn = QPushButton("Jetzt installieren")
+        self._install_now_btn.setObjectName("AccentBtn")
+        self._install_now_btn.setFixedWidth(150)
+        self._install_now_btn.setVisible(False)
+        self._install_now_btn.clicked.connect(self._do_install_now)
+        row_new.add_control(self._install_now_btn)
+
         lay.addWidget(row_new)
         lay.addWidget(hline())
         lay.addSpacing(4)
@@ -1018,24 +1029,72 @@ class PageUpdates(QWidget):
         from core import updater
         self._check_btn.setText("Prüfe...")
         self._check_btn.setEnabled(False)
+        self._install_now_btn.setVisible(False)
+
         def _done(info):
-            from PyQt6.QtCore import QTimer
-            def _ui():
-                self._check_btn.setText(t("settings.check_update"))
-                self._check_btn.setEnabled(True)
-                if info:
-                    self._remote_ver = info
-                    self._new_ver_lbl.setText(info["version"])
-                    self._new_ver_lbl.setStyleSheet(
-                        "color: #3B6D11; font-weight: 700; background: transparent;")
-                    self._notes_lbl.setText(info.get("notes","—"))
-                else:
-                    from core.config import APP_VERSION
-                    self._new_ver_lbl.setText(f"{APP_VERSION} (aktuell)")
-                    self._new_ver_lbl.setStyleSheet("background: transparent;")
-                    self._notes_lbl.setText("Du hast die neueste Version.")
-            QTimer.singleShot(0, _ui)
+            # Wird aus Hintergrund-Thread aufgerufen — Signal sorgt für
+            # sicheren Wechsel zurück in den Qt Main Thread.
+            self._update_checked.emit(info)
+
         updater.check_for_update(_done)
+
+    def _on_update_checked(self, info):
+        self._check_btn.setText(t("settings.check_update"))
+        self._check_btn.setEnabled(True)
+        if info:
+            self._remote_ver = info
+            self._new_ver_lbl.setText(info["version"])
+            self._new_ver_lbl.setStyleSheet(
+                "color: #3B6D11; font-weight: 700; background: transparent;")
+            self._notes_lbl.setText(info.get("notes", "—"))
+            self._install_now_btn.setVisible(True)
+        else:
+            from core.config import APP_VERSION
+            self._new_ver_lbl.setText(f"{APP_VERSION} (aktuell)")
+            self._new_ver_lbl.setStyleSheet("background: transparent;")
+            self._notes_lbl.setText("Du hast die neueste Version.")
+            self._install_now_btn.setVisible(False)
+
+    def _do_install_now(self):
+        if not self._remote_ver:
+            return
+        from PyQt6.QtWidgets import QMessageBox
+        from PyQt6.QtCore import QTimer
+
+        version = self._remote_ver["version"]
+        confirm = QMessageBox(self)
+        confirm.setWindowTitle("Update installieren")
+        confirm.setText(f"Update auf v{version} jetzt installieren?")
+        confirm.setInformativeText(
+            "Die App wird automatisch neu gestartet sobald die Installation abgeschlossen ist.")
+        confirm.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        confirm.setDefaultButton(QMessageBox.StandardButton.No)
+        if confirm.exec() != QMessageBox.StandardButton.Yes:
+            return
+
+        self._install_now_btn.setEnabled(False)
+        self._install_now_btn.setText("Installiere...")
+        self._check_btn.setEnabled(False)
+
+        from core import updater
+        updater.create_backup()
+
+        def _progress(pct):
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(0, lambda: self._install_now_btn.setText(f"{pct}%"))
+
+        # download_and_install startet die App neu bei Erfolg (kehrt nicht zurück)
+        ok, msg = updater.download_and_install(self._remote_ver, progress_callback=_progress)
+
+        if not ok:
+            self._install_now_btn.setEnabled(True)
+            self._install_now_btn.setText("Jetzt installieren")
+            self._check_btn.setEnabled(True)
+            err = QMessageBox(self)
+            err.setWindowTitle("Update fehlgeschlagen")
+            err.setText(msg)
+            err.exec()
 
     def _do_restore(self):
         from PyQt6.QtWidgets import QMessageBox
