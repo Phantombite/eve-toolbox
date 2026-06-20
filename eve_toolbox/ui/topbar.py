@@ -16,6 +16,8 @@ from core.config import APP_NAME, FACTIONS, MODULES
 from core.i18n import t
 from ui.settings_panel import SettingsPanel
 from ui.account_popup import AccountPopup
+from ui.unlock_popup import UnlockPopup
+from core import crypto_vault as _vault
 
 
 class HomeTabButton(QWidget):
@@ -206,7 +208,7 @@ class Topbar(QWidget):
     theme_changed    = pyqtSignal(str)
     edit_mode_changed  = pyqtSignal(bool)
     open_settings      = pyqtSignal()
-    open_info_panel    = pyqtSignal()
+    open_bell_popup    = pyqtSignal()
     open_account_settings = pyqtSignal()
     account_changed    = pyqtSignal(dict)
     account_clicked    = pyqtSignal()
@@ -277,12 +279,7 @@ class Topbar(QWidget):
         char_lay.addWidget(self._avatar)
 
         # Name — als Instanzvariable speichern damit wir nach Login aktualisieren können
-        try:
-            from core import esi as esi_mod
-            tokens = esi_mod.load_tokens()
-            active_name = tokens[0].get("name", "Kein Login") if tokens else "Kein Login"
-        except Exception:
-            active_name = "Kein Login"
+        active_name = self._current_display_name()
         self._name_lbl = QLabel(active_name)
         self._name_lbl.setStyleSheet("font-size: 12px; font-weight: 500;")
         char_lay.addWidget(self._name_lbl)
@@ -302,11 +299,18 @@ class Topbar(QWidget):
         arrow.setStyleSheet("font-size: 10px; color: #888;")
         char_lay.addWidget(arrow)
 
-        # Account Popup erstellen
+        # Account Popup erstellen (nur sichtbar wenn Vault entsperrt ist)
         self._account_popup = AccountPopup(self.settings)
         self._account_popup.account_changed.connect(self._on_account_changed)
         self._account_popup.open_settings.connect(self.open_account_settings)
         self._account_popup.hide()
+
+        # Entschlüsselungs-Popup (sichtbar solange Vault gesperrt ist)
+        self._unlock_popup = UnlockPopup(self.settings)
+        self._unlock_popup.unlocked.connect(self._on_vault_unlocked)
+        self._unlock_popup.open_security.connect(self.open_account_settings)
+        self._unlock_popup.hide()
+
         self._char_widget.mousePressEvent = lambda e: self._show_account_popup()
         lay.addWidget(self._char_widget)
         # Initial Stil setzen
@@ -334,10 +338,10 @@ class Topbar(QWidget):
         lay.addWidget(self._vline())
 
         # Info-Button (Glocke)
-        self._info_btn = GearButton(self)
-        self._info_btn._symbol = "🔔"
-        self._info_btn.clicked.connect(self.open_info_panel)
-        lay.addWidget(self._info_btn)
+        self._bell_btn = GearButton(self)
+        self._bell_btn._symbol = "🔔"
+        self._bell_btn.clicked.connect(self.open_bell_popup)
+        lay.addWidget(self._bell_btn)
 
         # Einstellungen-Button
         self._settings_btn = GearButton(self)
@@ -505,27 +509,27 @@ class Topbar(QWidget):
 
     def set_bell_active(self, v: bool):
         """Rahmen Glocke: sichtbar wenn Popup oder Meldungsseite offen."""
-        self._info_btn.set_active(v)
+        self._bell_btn.set_active(v)
 
     def set_unread(self, has_unread: bool):
         """Roten Punkt und Blinken der Glocke steuern."""
-        self._info_btn._has_unread = has_unread
-        self._info_btn._blink_on   = False
+        self._bell_btn._has_unread = has_unread
+        self._bell_btn._blink_on   = False
         if has_unread:
-            if not hasattr(self._info_btn, '_blink_timer'):
+            if not hasattr(self._bell_btn, '_blink_timer'):
                 from PyQt6.QtCore import QTimer
-                self._info_btn._blink_timer = QTimer()
-                self._info_btn._blink_timer.timeout.connect(
+                self._bell_btn._blink_timer = QTimer()
+                self._bell_btn._blink_timer.timeout.connect(
                     lambda: self._do_bell_blink())
-            self._info_btn._blink_timer.start(700)
+            self._bell_btn._blink_timer.start(700)
         else:
-            if hasattr(self._info_btn, '_blink_timer'):
-                self._info_btn._blink_timer.stop()
-        self._info_btn.update()
+            if hasattr(self._bell_btn, '_blink_timer'):
+                self._bell_btn._blink_timer.stop()
+        self._bell_btn.update()
 
     def _do_bell_blink(self):
-        self._info_btn._blink_on = not self._info_btn._blink_on
-        self._info_btn.update()
+        self._bell_btn._blink_on = not self._bell_btn._blink_on
+        self._bell_btn.update()
 
     def update_active_account(self, account: dict):
         """Aktualisiert den angezeigten Account in der Topbar."""
@@ -555,6 +559,8 @@ class Topbar(QWidget):
         self._update_btn_accents(faction)
         if hasattr(self, "_account_popup"):
             self._account_popup.update_faction(faction)
+        if hasattr(self, "_unlock_popup"):
+            self._unlock_popup.update_faction(faction)
         f = FACTIONS.get(faction, FACTIONS["caldari"])
         if hasattr(self, "_settings_btn"):
             self._settings_btn.set_accent(f["accent"])
@@ -570,9 +576,9 @@ class Topbar(QWidget):
     def _update_btn_accents(self, faction: str):
         from core.config import FACTIONS
         f = FACTIONS.get(faction, FACTIONS["caldari"])
-        self._info_btn._accent = f["accent"]
+        self._bell_btn._accent = f["accent"]
         self._settings_btn._accent = f["accent"]
-        self._info_btn.update()
+        self._bell_btn.update()
         self._settings_btn.update()
 
     def _update_home_logo(self, faction: str):
@@ -586,8 +592,59 @@ class Topbar(QWidget):
         self._home_btn.update()
 
     # ── Account Popup ─────────────────────────────────────────
+    def _current_display_name(self) -> str:
+        """Name für die Topbar-Anzeige — abhängig vom Vault-Lock-Status.
+        Solange gesperrt, wird absichtlich KEIN Charaktername gezeigt
+        (auch nicht der zuletzt aktive) — das wäre genau die Information,
+        die die Verschlüsselung der kompletten Charakterdatei schützen soll."""
+        if not _vault.is_unlocked():
+            return "🔒 " + t("security.locked_title")
+        try:
+            from core import esi as esi_mod
+            tokens = esi_mod.load_tokens()
+            return tokens[0].get("name", "Kein Login") if tokens else "Kein Login"
+        except Exception:
+            return "Kein Login"
+
+    def _on_vault_unlocked(self):
+        """Wird ausgelöst, wenn das UnlockPopup erfolgreich entsperrt hat.
+        Aktualisiert die Topbar-Anzeige und öffnet direkt das gewohnte
+        Account-Popup — kein zweiter Klick nötig."""
+        _log.info("Topbar: Vault entsperrt — wechsle zu Account-Popup")
+        self._name_lbl.setText(self._current_display_name())
+        self._account_popup.reload()
+        from PyQt6.QtCore import QPoint
+        gp = self._char_widget.mapToGlobal(
+            QPoint(self._char_widget.width(), self._char_widget.height()))
+        self._account_popup.move(gp.x() - self._account_popup.width(), gp.y())
+        self._account_popup.show()
+        self._account_popup.raise_()
+
+    def lock_now(self):
+        """Sperrt den Vault sofort (z.B. Auto-Lock-Timer, manueller Button
+        in den Sicherheits-Einstellungen) und aktualisiert die Anzeige."""
+        _vault.lock_session()
+        self._name_lbl.setText(self._current_display_name())
+        self._account_popup.hide()
+        _log.info("Topbar: Vault gesperrt")
+
     def _show_account_popup(self):
-        _log.debug("Account-Popup geöffnet")
+        _log.debug("Charakter-Widget geklickt")
+        if not _vault.is_unlocked():
+            # Gesperrt → Entschlüsselungs-Popup statt Account-Popup zeigen
+            if not hasattr(self, "_unlock_popup"):
+                return
+            if self._unlock_popup.isVisible():
+                self._unlock_popup.hide()
+                return
+            from PyQt6.QtCore import QPoint
+            gp = self._char_widget.mapToGlobal(
+                QPoint(self._char_widget.width(), self._char_widget.height()))
+            self._unlock_popup.move(gp.x() - self._unlock_popup.width(), gp.y())
+            self._unlock_popup.show()
+            self._unlock_popup.raise_()
+            return
+
         if not hasattr(self, "_account_popup"):
             return
         if self._account_popup.isVisible():

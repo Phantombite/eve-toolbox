@@ -6,7 +6,7 @@ _log = _logger.get("main_window")
 
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
                               QStackedWidget, QLabel, QApplication)
-from PyQt6.QtCore import QPoint
+from PyQt6.QtCore import QPoint, QTimer
 from PyQt6.QtGui import QPalette, QColor
 from PyQt6.QtCore import Qt
 from core.config import APP_NAME, APP_VERSION, MODULES, FACTIONS
@@ -15,12 +15,15 @@ from ui.topbar import Topbar
 from ui.home_grid import HomeGrid
 from ui.home_donut import HomeDonut
 from ui.settings_page import SettingsPage
-from ui.info_panel import InfoPanel
 from ui.notifications_page import NotificationsPage
 from ui.bell_popup import BellPopup
 from ui.account_popup import AccountPopup
+from ui.fly_safe_dialog import FlySafeDialog
 from core import notifications as nf
 from core import updater
+from core import integrity
+from core import crypto_vault as _vault
+import os
 
 
 def make_stylesheet(faction_key: str, dark: bool) -> str:
@@ -375,6 +378,7 @@ class MainWindow(QMainWindow):
         self._open_tabs = {}
         self._build_ui()
         self._apply_faction()
+        self._setup_autolock()
 
     def _build_ui(self):
         root = QWidget()
@@ -394,7 +398,7 @@ class MainWindow(QMainWindow):
         self.topbar.open_account_settings.connect(self._open_account_settings)
         # Popup leitet Login-Anfrage zur Account-Verwaltung
         self.topbar._account_popup.request_login.connect(self._open_account_login)
-        self.topbar.open_info_panel.connect(self._toggle_bell_popup)
+        self.topbar.open_bell_popup.connect(self._toggle_bell_popup)
         layout.addWidget(self.topbar)
 
         self.stack = QStackedWidget()
@@ -427,6 +431,12 @@ class MainWindow(QMainWindow):
         self.settings_page.language_changed.connect(self._on_language)
         # SettingsPage informiert main_window bei Account-Änderungen
         self.settings_page.accounts_changed.connect(self._on_accounts_changed)
+        # Sicherheits-Page: Sperren, Auto-Lock-Zeit, Lösch-Notausgang
+        self.settings_page.lock_requested.connect(self._on_lock_requested)
+        self.settings_page.autolock_changed.connect(self._on_autolock_changed)
+        self.settings_page.lock_on_minimize_changed.connect(self._on_lock_on_minimize_changed)
+        self.settings_page.delete_once_changed.connect(self._on_delete_once_changed)
+        self.settings_page.delete_always_changed.connect(self._on_delete_always_changed)
         # Popup-Referenz und Reload-Callback direkt an PageAccounts übergeben
         page = self.settings_page._pages.get("Accounts")
         if page:
@@ -435,7 +445,6 @@ class MainWindow(QMainWindow):
 
         # Benachrichtigungen laden
         self._notifications    = nf.load()
-        self._info_panel       = None
         self._notifications_page = NotificationsPage(
             self._notifications, self.settings, self)
         self._notifications_page.setVisible(False)  # Verhindert floating widget
@@ -466,8 +475,15 @@ class MainWindow(QMainWindow):
         self._bell_popup.update_data(self._all_notifs())
         self._update_blink()
 
-        # Update-Check im Hintergrund
-        updater.check_for_update(self._on_update_result)
+        # Update-Check im Hintergrund — überspringen, wenn der Dev-Mode-
+        # Pfad bereits in main.py gegriffen hat (gleiche Bedingung wie
+        # dort: EVE_SKIP_CHECKS + gültiger Dev-Token). Sonst würde dieser
+        # unabhängige Hintergrund-Check trotzdem gegen GitHub laufen und
+        # offline-Fehler ins Log schreiben, auch wenn der Dev-Mode aktiv ist.
+        if os.environ.get("EVE_SKIP_CHECKS") == "1" and integrity.check_dev_token():
+            _log.debug("Dev-Mode aktiv — Hintergrund-Update-Check übersprungen")
+        else:
+            updater.check_for_update(self._on_update_result)
 
         self._show_home()
 
@@ -521,7 +537,7 @@ class MainWindow(QMainWindow):
             self.topbar.set_bell_active(False)
             return
         self._bell_popup.update_data(self._all_notifs())
-        btn = self.topbar._info_btn
+        btn = self.topbar._bell_btn
         gp  = btn.mapToGlobal(QPoint(btn.width(), btn.height()))
         self._bell_popup.move(gp.x() - self._bell_popup.width(), gp.y())
         self._bell_popup.show()
@@ -783,11 +799,139 @@ class MainWindow(QMainWindow):
         self.topbar.set_faction(faction)
         if hasattr(self, "settings_page"):
             self.settings_page.set_faction(faction)
-        if self._info_panel:
-            self._info_panel.set_faction(faction)
         if hasattr(self, "_notifications_page"):
             self._notifications_page.set_faction(faction)
         if hasattr(self, "_bell_popup"):
             self._bell_popup.set_faction(faction)
         if hasattr(self, "_account_popup"):
             self._account_popup.update_faction(faction)
+
+    # ── Sicherheit: Auto-Lock ──────────────────────────────────
+    def _setup_autolock(self):
+        """
+        Richtet den Inaktivitäts-Timer für das automatische Sperren ein.
+        0 Minuten = "Niemals (erst beim Beenden)" → kein Timer aktiv.
+        Jede Maus-/Tastatur-Aktivität im Hauptfenster setzt den Timer
+        zurück (siehe eventFilter).
+        """
+        self._autolock_timer = QTimer(self)
+        self._autolock_timer.setSingleShot(True)
+        self._autolock_timer.timeout.connect(self._on_autolock_timeout)
+        self._restart_autolock_timer()
+        # Globaler Event-Filter auf der Application-Instanz, damit JEDE
+        # Nutzerinteraktion irgendwo im Fenster den Timer zurücksetzt —
+        # nicht nur Klicks auf das Hauptfenster selbst.
+        app = self._app or QApplication.instance()
+        if app:
+            app.installEventFilter(self)
+
+    def _restart_autolock_timer(self):
+        minutes = self.settings.get("autolock_minutes", 15)
+        self._autolock_timer.stop()
+        if minutes and minutes > 0 and _vault.is_unlocked():
+            self._autolock_timer.start(minutes * 60 * 1000)
+
+    def eventFilter(self, obj, event):
+        # Bei jeder Maus-/Tastatureingabe irgendwo in der App: Timer
+        # zurücksetzen. Bewusst breit gefasst (MouseMove eingeschlossen),
+        # da "Inaktivität" hier ehrlich gemeint ist — Mausbewegung allein
+        # zählt als Aktivität.
+        from PyQt6.QtCore import QEvent
+        if event.type() in (
+            QEvent.Type.MouseButtonPress, QEvent.Type.MouseMove,
+            QEvent.Type.KeyPress, QEvent.Type.Wheel,
+        ):
+            if _vault.is_unlocked():
+                self._restart_autolock_timer()
+        return super().eventFilter(obj, event)
+
+    def _on_autolock_timeout(self):
+        _log.info("Auto-Lock: Inaktivitätszeit erreicht — Vault wird gesperrt")
+        if hasattr(self, "topbar"):
+            self.topbar.lock_now()
+
+    def _on_lock_requested(self):
+        """'Jetzt sperren' Button in den Sicherheits-Einstellungen."""
+        if hasattr(self, "topbar"):
+            self.topbar.lock_now()
+        self._autolock_timer.stop()
+
+    def _on_autolock_changed(self, minutes: int):
+        self.settings["autolock_minutes"] = minutes
+        cfg.save(self.settings)
+        self._restart_autolock_timer()
+
+    def _on_lock_on_minimize_changed(self, enabled: bool):
+        self.settings["lock_on_minimize"] = enabled
+        cfg.save(self.settings)
+
+    def changeEvent(self, event):
+        """
+        Erkennt Minimieren — plattformunabhängig über Qt's eigenes
+        WindowStateChangeEvent, keine Windows-spezifische API. Sperrt
+        den Vault sofort, wenn die Option aktiv ist, unabhängig vom
+        Auto-Lock-Timer (deckt den Fall ab, dass "Niemals sperren"
+        gewählt ist, aber Minimieren trotzdem ein Sicherheitsrisiko
+        darstellt — z.B. fremder Blick auf den Bildschirm).
+        """
+        from PyQt6.QtCore import QEvent
+        if event.type() == QEvent.Type.WindowStateChange:
+            if self.isMinimized() and self.settings.get("lock_on_minimize", False):
+                if _vault.is_unlocked():
+                    _log.info("Fenster minimiert — Vault wird gesperrt (Einstellung aktiv)")
+                    if hasattr(self, "topbar"):
+                        self.topbar.lock_now()
+        super().changeEvent(event)
+
+    def _on_delete_once_changed(self, enabled: bool):
+        self.settings["delete_once_on_exit"] = enabled
+        cfg.save(self.settings)
+
+    def _on_delete_always_changed(self, enabled: bool):
+        self.settings["delete_always_on_exit"] = enabled
+        cfg.save(self.settings)
+
+    # ── Beenden: Verschlüsseln/Löschen + Fly-Safe-Meldung ──────
+    def closeEvent(self, event):
+        """
+        Regelt den Zustand der Userdaten beim Beenden:
+        - Normalfall: Vault ist bereits durchgehend verschlüsselt auf der
+          Platte (siehe core.crypto_vault — niemals Klartext-Zwischenstand),
+          hier wird nur noch die RAM-Sitzung aufgeräumt.
+        - "Einmalig löschen": löscht den Vault jetzt, setzt das Häkchen
+          danach selbst zurück (einmaliger Trigger).
+        - "Immer löschen": löscht Vault UND App-Einstellungen bei JEDEM
+          Beenden, dauerhaft aktiv bis der Nutzer es selbst abschaltet.
+        Zeigt abschließend die Fly-Safe-Meldung.
+        """
+        delete_once   = self.settings.get("delete_once_on_exit", False)
+        delete_always = self.settings.get("delete_always_on_exit", False)
+        deleted = False
+
+        try:
+            if delete_always:
+                _vault.delete_all_user_data(include_settings=True)
+                deleted = True
+                _log.warning("Beenden: 'Immer löschen' aktiv — alle Userdaten gelöscht")
+            elif delete_once:
+                _vault.delete_all_user_data(include_settings=False)
+                deleted = True
+                _log.info("Beenden: einmaliger Lösch-Trigger ausgeführt")
+                # Trigger zurücksetzen — nur EINMALIG löschen
+                self.settings["delete_once_on_exit"] = False
+                cfg.save(self.settings)
+            else:
+                # Normalfall: Sitzung im RAM aufräumen. Die Platte zeigt
+                # bereits durchgehend nur die verschlüsselte Version,
+                # hier passiert kein zusätzliches Schreiben mehr.
+                _vault.lock_session()
+        except Exception as e:
+            _log.error(f"Fehler beim Beenden-Handling: {e}")
+
+        try:
+            dlg = FlySafeDialog(deleted=deleted, parent=self)
+            dlg.exec()
+        except Exception as e:
+            _log.error(f"Fly-Safe-Dialog fehlgeschlagen: {e}")
+
+        super().closeEvent(event)

@@ -26,10 +26,13 @@ from core.esi_config import (
     ESI_CLIENT_ID, ESI_AUTH_URL, ESI_TOKEN_URL,
     ESI_BASE_URL, ESI_LOCAL_PORT, ESI_LOCAL_CB, ESI_SCOPES
 )
+from core import crypto_vault as _vault
 
-# Token-Speicherort
-TOKEN_DIR = Path.home() / ".eve_toolbox" / "tokens"
-TOKEN_DIR.mkdir(parents=True, exist_ok=True)
+# Tokens UND Charakter-Metadaten liegen jetzt verschlüsselt im zentralen
+# Vault (core/crypto_vault.py), nicht mehr als Klartext-JSON im
+# Windows-Profil. Die Funktionen unten setzen voraus, dass die Sitzung
+# bereits entsperrt ist (_vault.is_unlocked()) — Aufrufer aus der UI
+# müssen das vorher sicherstellen (Entschlüsselungs-Popup).
 
 
 # ── PKCE Hilfsfunktionen ──────────────────────────────────────
@@ -184,45 +187,47 @@ def _get_char_info(access_token: str) -> dict:
 
 
 # ── Token Speichern/Laden ─────────────────────────────────────
+#
+# Alle Funktionen hier wirken auf den aktuell entsperrten Vault
+# (core.crypto_vault.get_session()). Ist die Sitzung gesperrt, wird
+# core.crypto_vault.VaultError geworfen — die UI fängt das ab und
+# zeigt das Entschlüsselungs-Popup.
 
 def save_token(char_id: str, token_data: dict, char_info: dict):
-    """Speichert Token + Charakter-Info."""
+    """Speichert Token + komplette Charakter-Info im verschlüsselten Vault.
+    Schreibt sofort verschlüsselt auf die Platte (kein Klartext-Zwischenstand)."""
+    vault = _vault.get_session()
     data = {**token_data, **char_info}
-    path = TOKEN_DIR / f"{char_id}.json"
-    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    vault.upsert_character(char_id, data)
+    vault.persist()
 
 
 def load_tokens() -> list[dict]:
-    """Lädt alle gespeicherten Tokens."""
-    tokens = []
-    for f in TOKEN_DIR.glob("*.json"):
-        try:
-            tokens.append(json.loads(f.read_text(encoding="utf-8")))
-        except Exception:
-            pass
-    return tokens
+    """Lädt alle gespeicherten Charaktere/Tokens aus dem entsperrten Vault."""
+    vault = _vault.get_session()
+    return vault.list_characters()
 
 
 def delete_token(char_id: str):
-    """Löscht Token eines Charakters."""
-    path = TOKEN_DIR / f"{char_id}.json"
-    if path.exists():
-        path.unlink()
+    """Löscht einen Charakter aus dem Vault und schreibt sofort verschlüsselt."""
+    vault = _vault.get_session()
+    vault.remove_character(char_id)
+    vault.persist()
 
 
 def get_valid_token(char_id: str) -> str | None:
     """
     Gibt gültigen Access Token zurück.
-    Refresht automatisch wenn abgelaufen.
+    Refresht automatisch wenn abgelaufen — der neue Token wird sofort
+    wieder verschlüsselt im Vault persistiert.
     """
     import time
-    path = TOKEN_DIR / f"{char_id}.json"
-    if not path.exists():
+    vault = _vault.get_session()
+    data = vault.get_character(char_id)
+    if data is None:
         return None
 
-    data       = json.loads(path.read_text(encoding="utf-8"))
     expires_at = data.get("expires_at", 0)
-
     if time.time() < expires_at - 60:
         return data.get("access_token")
 
@@ -232,7 +237,8 @@ def get_valid_token(char_id: str) -> str | None:
         data["access_token"]  = new_tokens["access_token"]
         data["refresh_token"] = new_tokens.get("refresh_token", data["refresh_token"])
         data["expires_at"]    = time.time() + new_tokens.get("expires_in", 1199)
-        path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        vault.upsert_character(char_id, data)
+        vault.persist()
         return data["access_token"]
     except Exception:
         return None
@@ -256,7 +262,7 @@ def login(on_success=None, on_error=None):
 
     # Alten Server sauber beenden
     if _active_server is not None:
-        print(f"[{time.strftime('%H:%M:%S')}][ESI] Schließe alten Server für Login {my_login_id-1}", flush=True)
+        print(f"[{time.strftime('%H:%M:%S')}][ESI] Schließe alten Server für Login {_current_login_id}", flush=True)
         try:
             _active_server._done = True
             _active_server.server_close()
@@ -284,7 +290,7 @@ def login(on_success=None, on_error=None):
             print(f"[{time.strftime('%H:%M:%S')}][ESI] Server gestartet auf Port {ESI_LOCAL_PORT} (Versuch {attempt+1})", flush=True)
             break
         except OSError as e:
-            print(f"[{time.strftime('%H:%M:%S')}][ESI] Port noch belegt, warte... ({attempt+1}/30)", flush=True)
+            print(f"[{time.strftime('%H:%M:%S')}][ESI] Port noch belegt, warte... ({attempt+1}/30) — {e}", flush=True)
             time.sleep(0.1)
             server = None
     if server is None:

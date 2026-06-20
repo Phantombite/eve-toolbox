@@ -131,7 +131,7 @@ class BellPopup(QWidget):
 
         # Typ + Icon
         icon  = nf.TYPE_ICONS.get(notif.get("type","system"), "ℹ")
-        tname = nf.TYPE_LABELS.get(notif.get("type","system"), "Info")
+        tname = nf.get_type_labels().get(notif.get("type","system"), "Info")
         h_row = QHBoxLayout()
         type_lbl = QLabel(f"{icon}  {tname}")
         type_lbl.setStyleSheet(f"color: {f['accent']}; font-size: 10px; font-weight: 600; background: transparent;")

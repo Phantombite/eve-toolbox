@@ -60,7 +60,7 @@ class SplashScreen(QWidget):
 
     def finish(self):
         self._progress = 100
-        self._status   = "Bereit!"
+        self._status   = _t("splash.ready")
         self.update()
         QTimer.singleShot(600, self._close)
 

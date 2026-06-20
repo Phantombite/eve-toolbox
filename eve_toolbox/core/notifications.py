@@ -4,6 +4,7 @@ Benachrichtigungssystem — lädt, speichert und verwaltet Nachrichten.
 import json
 from datetime import datetime, date
 from pathlib import Path
+from core.i18n import t
 
 NOTIF_PATH = Path.home() / ".eve_toolbox" / "notifications.json"
 
@@ -20,12 +21,21 @@ TYPE_ICONS = {
     TYPE_WARNING: "⚠",
 }
 
-TYPE_LABELS = {
-    TYPE_UPDATE:  "Update",
-    TYPE_SYSTEM:  "System",
-    TYPE_NEWS:    "News",
-    TYPE_WARNING: "Warnung",
-}
+
+def get_type_labels() -> dict:
+    """
+    Als Funktion statt fixem Dict, damit t() bei jedem Aufruf die
+    aktuell gewählte Sprache nutzt (ein Modul-Level-Dict würde nur
+    einmal beim Import ausgewertet, bevor die Sprache feststeht).
+    Update/System/News sind in DE und EN identisch — nur "Warnung"/
+    "Warning" unterscheidet sich tatsächlich.
+    """
+    return {
+        TYPE_UPDATE:  "Update",
+        TYPE_SYSTEM:  "System",
+        TYPE_NEWS:    "News",
+        TYPE_WARNING: t("notifications.type_warning"),
+    }
 
 # Beispiel-Nachrichten (werden beim ersten Start gesetzt)
 DEFAULT_NOTIFICATIONS = [

@@ -1,17 +1,33 @@
 """
-EVE Toolbox — Integritätsprüfung.
+EVE Toolbox — Integritätsprüfung (reiner Prüfer, keine Reparatur).
 
-Ablauf:
-1. Dev-Token prüfen → bei gültigem Token sofort zurück
-2. checksums.json vom versionierten GitHub Tag laden
-3. Alle lokalen Dateien hashen und vergleichen
-4. Manipulierte/fehlende Dateien vom gleichen Tag wiederherstellen
-5. Ergebnis zurückgeben
+Architektur (Block 2 — Vertrauenskette unabhängig von GitHub):
+    GitHub ist nur noch Transportmedium, kein Vertrauensanker.
+    1. checksums.json + checksums.json.sig + release_cert.json vom
+       versionierten Tag laden
+    2. release_cert.json gegen den fest eingebetteten ROOT Public Key
+       prüfen (core.release_crypto.TRUSTED_PUBLIC_KEYS_PEM) — liefert
+       den vom Root autorisierten Release Key
+    3. checksums.json.sig gegen GENAU diesen Release Key prüfen —
+       BEVOR irgendein Datei-Hash verglichen wird
+    4. Erst bei gültiger zweistufiger Signatur: lokale Dateien hashen
+       und vergleichen
+    5. Ergebnis (welche Dateien fehlen/abweichen) wird zurückgegeben —
+       integrity.py reparariert selbst NICHTS mehr. Das übernimmt
+       ausschließlich core.updater.repair_files(), aufgerufen von main.py.
+
+Verantwortungstrennung (Punkt 3 der Roadmap):
+    integrity.py  → weiß "was ist los" (fehlt / manipuliert / ok)
+    updater.py    → bekommt nur Aufträge ("installiere X", "stelle Y wieder her")
+    main.py       → entscheidet anhand des IntegrityResult, ob updater.py
+                    aufgerufen wird
 
 Dev-Token:
-    Nur phantombite kann ein gültiges Token erstellen.
-    Das Token wird mit security_generator.bat erzeugt.
-    Ohne Token läuft immer der volle Check.
+    Nutzt core.release_crypto.verify_dev_token() — dieselbe Root→Release
+    Vertrauenskette wie für Release-Signaturen, aber als eigenständige
+    Funktion (ein Dev-Token bedeutet etwas anderes als eine gültige
+    Release-Signatur, auch wenn der kryptographische Unterbau identisch
+    ist). Läuft komplett offline, kein Netzwerkzugriff nötig.
 """
 from core import logger as _logger
 _log = _logger.get("integrity")
@@ -23,16 +39,12 @@ from pathlib import Path
 from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
 
+from core import release_crypto as _crypto
+
 # ── Konfiguration ─────────────────────────────────────────────
 GITHUB_USER     = "Phantombite"   # Gross-P — GitHub Raw URLs sind case-sensitive!
 GITHUB_REPO     = "eve-toolbox"
 GITHUB_BRANCH   = "main"
-
-# URL zum öffentlichen Schlüssel (immer von main)
-PUBKEY_URL = (
-    f"https://raw.githubusercontent.com/{GITHUB_USER}/"
-    f"{GITHUB_REPO}/{GITHUB_BRANCH}/dev_pubkey.pem"
-)
 
 REQUEST_TIMEOUT = 10
 
@@ -42,6 +54,7 @@ REQUEST_TIMEOUT = 10
 APP_DIR        = Path(__file__).resolve().parent.parent.parent
 EVE_DIR        = APP_DIR / "eve_toolbox"
 DEV_TOKEN_PATH = APP_DIR / "dev_mode.flag"
+RELEASE_CERT_PATH = APP_DIR / _crypto.RELEASE_CERT_FILENAME
 
 # Dateierweiterungen die als Text behandelt werden (Zeilenenden normalisieren)
 TEXT_EXTENSIONS = {".py", ".json", ".txt", ".md", ".sh", ".bat", ".spec"}
@@ -56,33 +69,48 @@ IGNORE_PATTERNS = {
     ".log",
     "tokens",
     "backup",
+    "data",  # Vault-Ordner (Salt + verschlüsselte Account-Daten) — Nutzerdaten, kein Programmcode
+    "_embed_pubkey.py",  # Reines Build-Tool für security_generator.bat, kein App-Code
+    ".bak",
 }
 
 
 # ── Ergebnis-Klasse ───────────────────────────────────────────
 
 class IntegrityResult:
+    """
+    Reines Diagnose-Ergebnis. Enthält KEINE Reparatur-Aktionen mehr —
+    nur die Liste der betroffenen Dateien (missing_files / corrupted_files),
+    die main.py bei Bedarf an core.updater.repair_files() weitergibt.
+    """
     def __init__(self):
-        self.passed        = True
-        self.dev_mode      = False
-        self.offline       = False
-        self.files_checked = 0
-        self.files_ok      = 0
-        self.files_fixed   = 0
-        self.files_failed  = []
-        self.error         = None
+        self.passed          = True
+        self.dev_mode        = False
+        self.offline         = False
+        self.signature_valid = None  # None = nicht geprüft, True/False = Ergebnis
+        self.files_checked   = 0
+        self.files_ok        = 0
+        self.missing_files   = []   # Dateien, die lokal fehlen
+        self.corrupted_files = []   # Dateien, deren Hash nicht passt
+        self.error           = None
+
+    @property
+    def needs_repair(self) -> bool:
+        return bool(self.missing_files or self.corrupted_files)
 
     def __str__(self):
         if self.dev_mode:
             return "Dev-Modus: Integritätsprüfung übersprungen"
         if self.offline:
             return "Offline: Integritätsprüfung nicht möglich"
+        if self.signature_valid is False:
+            return "FEHLER: Signatur von checksums.json ungültig — Prüfung abgebrochen"
         if self.error:
             return f"Fehler: {self.error}"
-        if self.files_failed:
-            return f"FEHLER: {len(self.files_failed)} Datei(en) konnten nicht repariert werden"
-        return (f"OK: {self.files_ok}/{self.files_checked} Dateien geprüft"
-                + (f", {self.files_fixed} repariert" if self.files_fixed else ""))
+        if self.needs_repair:
+            n = len(self.missing_files) + len(self.corrupted_files)
+            return f"PRÜFUNG: {n} Datei(en) benötigen Reparatur"
+        return f"OK: {self.files_ok}/{self.files_checked} Dateien geprüft"
 
 
 # ── Hashing ───────────────────────────────────────────────────
@@ -106,13 +134,6 @@ def _hash_file(path: Path) -> str:
         return _hash_data(f.read(), is_text)
 
 
-def _hash_bytes(data: bytes, filename: str) -> str:
-    """Hash von Bytes (z.B. heruntergeladene Datei)."""
-    suffix = Path(filename).suffix.lower()
-    is_text = suffix in TEXT_EXTENSIONS
-    return _hash_data(data, is_text)
-
-
 def _should_ignore(path: Path) -> bool:
     path_str = str(path)
     return any(p in path_str for p in IGNORE_PATTERNS)
@@ -124,61 +145,93 @@ def _get_relative_key(path: Path) -> str:
 
 # ── Dev-Token ─────────────────────────────────────────────────
 
-def _check_dev_token() -> bool:
+def check_dev_token() -> bool:
+    """
+    Prüft den lokalen Dev-Token über core.release_crypto — komplett
+    offline, kein Netzwerkzugriff mehr nötig. Zweistufig: zuerst wird
+    release_cert.json gegen den im Programmcode eingebetteten Root Key
+    geprüft (release_crypto.TRUSTED_PUBLIC_KEYS_PEM), danach der
+    Dev-Token gegen den im Zertifikat autorisierten Release Key.
+    """
     if not DEV_TOKEN_PATH.exists():
         return False
-    try:
-        from cryptography.hazmat.primitives import hashes, serialization
-        from cryptography.hazmat.primitives.asymmetric import padding
-        from cryptography.exceptions import InvalidSignature
-        import base64
-    except ImportError:
-        _log.warning("cryptography nicht installiert — Dev-Token kann nicht geprüft werden")
+    if not RELEASE_CERT_PATH.exists():
+        _log.warning("release_cert.json fehlt — Dev-Token kann nicht geprüft werden")
         return False
     try:
-        req = Request(PUBKEY_URL, headers={"User-Agent": f"EVE-Toolbox/integrity"})
-        with urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
-            pubkey_pem = resp.read()
-        pubkey    = serialization.load_pem_public_key(pubkey_pem)
         token_b64 = DEV_TOKEN_PATH.read_text(encoding="utf-8").strip()
-        signature = base64.b64decode(token_b64)
-        pubkey.verify(signature, b"EVEToolbox-DevMode", padding.PKCS1v15(), hashes.SHA256())
-        _log.info("Dev-Token gültig — Integritätsprüfung übersprungen")
-        return True
     except Exception as e:
-        _log.warning(f"Dev-Token Prüfung: {e} — führe vollen Check durch")
+        _log.warning(f"Dev-Token konnte nicht gelesen werden: {e}")
         return False
 
+    valid = _crypto.verify_dev_token(token_b64, RELEASE_CERT_PATH)
+    if valid:
+        _log.info("Dev-Token gültig — Integritätsprüfung übersprungen")
+    else:
+        _log.warning("Dev-Token ungültig — führe vollen Check durch")
+    return valid
 
-# ── Checksums von GitHub ──────────────────────────────────────
 
-def _fetch_checksums(version: str) -> dict | None:
-    """
-    Lädt checksums.json vom versionierten GitHub Tag.
-    Damit wird immer gegen die exakt installierte Version geprüft —
-    niemals gegen eine neuere Version auf main.
-    """
-    tag = f"v{version}" if version != "main" else GITHUB_BRANCH
-    url = (
-        f"https://raw.githubusercontent.com/{GITHUB_USER}/"
-        f"{GITHUB_REPO}/{tag}/checksums.json"
-    )
-    _log.debug(f"Lade checksums.json von Tag {tag}: {url}")
+# ── Checksums von GitHub laden + Signatur prüfen ──────────────
+
+def _fetch_bytes(url: str, timeout: int = REQUEST_TIMEOUT) -> bytes | None:
     try:
         req = Request(url, headers={"User-Agent": "EVE-Toolbox/integrity"})
-        with urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        _log.debug(f"Checksums geladen: {len(data)} Einträge")
-        return data
+        with urlopen(req, timeout=timeout) as resp:
+            return resp.read()
     except (URLError, HTTPError) as e:
-        _log.warning(f"GitHub nicht erreichbar: {e}")
+        _log.warning(f"GitHub nicht erreichbar ({url}): {e}")
         return None
     except Exception as e:
-        _log.error(f"Fehler beim Laden der Checksums: {e}")
+        _log.error(f"Fehler beim Laden von {url}: {e}")
         return None
 
 
-def _get_local_version() -> str:
+def _fetch_checksums_with_signature(version: str) -> tuple[dict | None, bool]:
+    """
+    Lädt checksums.json, checksums.json.sig UND release_cert.json vom
+    versionierten GitHub Tag, prüft die zweistufige Signatur (Root
+    autorisiert Release Key, Release Key signiert checksums.json) BEVOR
+    die Datei überhaupt als JSON benutzt wird. Gibt
+    (checksums_dict_oder_None, signature_war_gueltig) zurück.
+
+    Reihenfolge ist hier bewusst strikt: Wird irgendeine der drei
+    Dateien nicht gefunden oder ist die Kette ungültig, wird
+    checksums.json NICHT geparst oder verwendet.
+    """
+    tag = f"v{version}" if version != "main" else GITHUB_BRANCH
+    base = f"https://raw.githubusercontent.com/{GITHUB_USER}/{GITHUB_REPO}/{tag}"
+
+    checksums_raw = _fetch_bytes(f"{base}/checksums.json")
+    if checksums_raw is None:
+        return None, False
+
+    sig_raw = _fetch_bytes(f"{base}/checksums.json.sig")
+    if sig_raw is None:
+        _log.warning("checksums.json.sig nicht erreichbar — Signatur kann nicht geprüft werden")
+        return None, False
+
+    cert_raw = _fetch_bytes(f"{base}/{_crypto.RELEASE_CERT_FILENAME}")
+    if cert_raw is None:
+        _log.warning("release_cert.json nicht erreichbar — Release Key kann nicht autorisiert werden")
+        return None, False
+
+    signature_b64 = sig_raw.decode("utf-8").strip()
+    if not _crypto.verify_release_signature(checksums_raw, signature_b64, cert_bytes=cert_raw):
+        _log.error("checksums.json: Signatur UNGÜLTIG — wird verworfen, nicht verwendet")
+        return None, False
+
+    try:
+        data = json.loads(checksums_raw.decode("utf-8"))
+    except Exception as e:
+        _log.error(f"checksums.json (signiert, aber kein gültiges JSON): {e}")
+        return None, True  # Signatur war gültig, aber Inhalt kaputt — getrennt gemeldet
+
+    _log.debug(f"checksums.json signiert + geladen: {len(data)} Einträge")
+    return data, True
+
+
+def get_local_version() -> str:
     try:
         ver_file = APP_DIR / "version.json"
         return json.loads(ver_file.read_text(encoding="utf-8")).get("version", "main")
@@ -186,48 +239,22 @@ def _get_local_version() -> str:
         return "main"
 
 
-# ── Datei von GitHub wiederherstellen ────────────────────────
-
-def _restore_file(rel_key: str, version: str) -> bool:
-    """
-    Stellt eine Datei vom exakt gleichen GitHub Tag wieder her.
-    Hasht die heruntergeladene Datei zur Verifikation.
-    """
-    tag = f"v{version}" if version != "main" else GITHUB_BRANCH
-    url = (
-        f"https://raw.githubusercontent.com/{GITHUB_USER}/"
-        f"{GITHUB_REPO}/{tag}/{rel_key}"
-    )
-    target = APP_DIR / rel_key.replace("/", os.sep)
-    try:
-        _log.info(f"Stelle wieder her: {rel_key}")
-        req = Request(url, headers={"User-Agent": "EVE-Toolbox/integrity"})
-        with urlopen(req, timeout=30) as resp:
-            content = resp.read()
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(content)
-        _log.info(f"Wiederhergestellt: {rel_key}")
-        return True
-    except Exception as e:
-        _log.error(f"Wiederherstellung fehlgeschlagen für {rel_key}: {e}")
-        return False
-
-
-# ── Hauptfunktion ─────────────────────────────────────────────
-
 # ── Kritische Dateien für Mini-Check ─────────────────────────
 CRITICAL_FILES = [
     "eve_toolbox/core/updater.py",
     "eve_toolbox/core/integrity.py",
+    "eve_toolbox/core/release_crypto.py",
     "eve_toolbox/main.py",
 ]
 
 
 def mini_check(progress_callback=None) -> IntegrityResult:
     """
-    Schneller Check nur der kritischen Dateien (updater, integrity, main).
-    Läuft vor dem Update-Check damit der Updater immer funktionsfähig ist.
-    Repariert sofort ohne Neustart — Python-Dateien können live ersetzt werden.
+    Schneller Check nur der kritischen Dateien (updater, integrity,
+    release_crypto, main). Läuft vor dem Update-Check damit der Updater
+    immer funktionsfähig ist. Meldet nur — reparariert NICHT mehr selbst
+    (siehe Moduldocstring). main.py entscheidet, ob core.updater.
+    repair_files() mit dem Ergebnis aufgerufen wird.
     """
     result = IntegrityResult()
 
@@ -238,25 +265,29 @@ def mini_check(progress_callback=None) -> IntegrityResult:
     _log.info("=== Mini-Integritätscheck gestartet ===")
     _progress(0, "Prüfe kritische Dateien...")
 
-    local_version = _get_local_version()
+    local_version = get_local_version()
     _log.info(f"Lokale Version: {local_version}")
 
-    # Checksums laden
-    checksums = _fetch_checksums(local_version)
+    checksums, sig_ok = _fetch_checksums_with_signature(local_version)
+    result.signature_valid = sig_ok
+
     if checksums is None:
-        result.offline = True
-        _log.warning("Offline — Mini-Check nicht möglich")
-        _progress(100, "Offline")
+        if sig_ok:
+            # Signatur war gültig, aber Inhalt unbrauchbar — echter Fehler
+            result.error = "checksums.json signiert, aber Inhalt ungültig"
+        else:
+            result.offline = True
+            _log.warning("Offline oder Signatur ungültig — Mini-Check nicht möglich")
+        _progress(100, "Offline" if result.offline else "Fehler")
         return result
 
-    corrupted = []
     for rel_key in CRITICAL_FILES:
         result.files_checked += 1
         local_path = APP_DIR / rel_key.replace("/", os.sep)
 
         if not local_path.exists():
             _log.warning(f"FEHLT: {rel_key}")
-            corrupted.append(rel_key)
+            result.missing_files.append(rel_key)
             continue
 
         expected = checksums.get(rel_key)
@@ -267,35 +298,21 @@ def mini_check(progress_callback=None) -> IntegrityResult:
         actual = _hash_file(local_path)
         if actual != expected:
             _log.warning(f"DEFEKT: {rel_key}")
-            _log.debug(f"  Erwartet: {expected}")
-            _log.debug(f"  Gefunden: {actual}")
-            corrupted.append(rel_key)
+            result.corrupted_files.append(rel_key)
         else:
             result.files_ok += 1
 
-    if corrupted:
-        _log.info(f"Mini-Check: {len(corrupted)} kritische Datei(en) werden repariert...")
-        result.passed = False
-        for rel_key in corrupted:
-            _progress(50, f"Repariere {rel_key.split('/')[-1]}...")
-            if _restore_file(rel_key, local_version):
-                result.files_fixed += 1
-                result.files_ok += 1
-                _log.info(f"Repariert: {rel_key}")
-            else:
-                result.files_failed.append(rel_key)
-        if not result.files_failed:
-            result.passed = True
-            _log.info("Mini-Check: Alle kritischen Dateien repariert")
-    else:
-        _log.info("Mini-Check: Alle kritischen Dateien OK")
-
-    _progress(100, "Kritische Dateien OK")
-    _log.info("=== Mini-Integritätscheck abgeschlossen ===")
+    result.passed = not result.needs_repair
+    _progress(100, str(result))
+    _log.info(f"=== Mini-Integritätscheck abgeschlossen: {result} ===")
     return result
 
 
 def run_check(progress_callback=None) -> IntegrityResult:
+    """
+    Vollständiger Check aller Dateien in checksums.json. Reine Diagnose —
+    siehe Moduldocstring zur Verantwortungstrennung.
+    """
     result = IntegrityResult()
 
     def _progress(pct: int, status: str):
@@ -307,21 +324,27 @@ def run_check(progress_callback=None) -> IntegrityResult:
 
     # ── Schritt 1: Dev-Token ──────────────────────────────────
     _progress(5, "Prüfe Dev-Token...")
-    if _check_dev_token():
+    if check_dev_token():
         result.dev_mode = True
         _progress(100, "Dev-Modus: Check übersprungen")
         return result
 
-    # ── Schritt 2: Lokale Version + Checksums laden ───────────
-    _progress(10, "Lade Prüfsummen von GitHub...")
-    local_version = _get_local_version()
+    # ── Schritt 2: Checksums + Signatur laden ─────────────────
+    _progress(10, "Lade signierte Prüfsummen...")
+    local_version = get_local_version()
     _log.info(f"Lokale Version: {local_version}")
 
-    checksums = _fetch_checksums(local_version)
+    checksums, sig_ok = _fetch_checksums_with_signature(local_version)
+    result.signature_valid = sig_ok
+
     if checksums is None:
-        result.offline = True
-        _log.warning("Offline — Integritätscheck nicht möglich, fahre fort")
-        _progress(100, "Offline — Check übersprungen")
+        if sig_ok:
+            result.error = "checksums.json signiert, aber Inhalt ungültig"
+            _log.error(result.error)
+        else:
+            result.offline = True
+            _log.warning("Offline oder Signatur ungültig — Integritätscheck nicht möglich, fahre fort")
+        _progress(100, "Offline — Check übersprungen" if result.offline else "Fehler")
         return result
 
     # ── Schritt 3: Dateien prüfen ─────────────────────────────
@@ -334,10 +357,8 @@ def run_check(progress_callback=None) -> IntegrityResult:
         _progress(100, "Keine Prüfsummen vorhanden")
         return result
 
-    corrupted = []
-
     for i, rel_key in enumerate(files_to_check):
-        pct = 20 + int(i / total * 50)
+        pct = 20 + int(i / total * 75)
         _progress(pct, f"Prüfe {rel_key.split('/')[-1]}...")
 
         expected_hash = checksums[rel_key]
@@ -346,7 +367,7 @@ def run_check(progress_callback=None) -> IntegrityResult:
 
         if not local_path.exists():
             _log.warning(f"FEHLT: {rel_key}")
-            corrupted.append(rel_key)
+            result.missing_files.append(rel_key)
             continue
 
         if _should_ignore(local_path):
@@ -359,39 +380,15 @@ def run_check(progress_callback=None) -> IntegrityResult:
             _log.warning(f"MANIPULIERT: {rel_key}")
             _log.debug(f"  Erwartet : {expected_hash}")
             _log.debug(f"  Gefunden : {actual_hash}")
-            # Zusätzliche Debug-Info: Dateigröße und ob CRLF vorhanden
-            try:
-                raw = local_path.read_bytes()
-                has_crlf = b"\r\n" in raw
-                _log.debug(f"  Groesse  : {len(raw)} bytes | CRLF: {has_crlf}")
-            except Exception:
-                pass
-            corrupted.append(rel_key)
+            result.corrupted_files.append(rel_key)
         else:
             result.files_ok += 1
 
-    # ── Schritt 4: Reparieren ─────────────────────────────────
-    if corrupted:
-        _log.info(f"{len(corrupted)} Datei(en) werden wiederhergestellt...")
-        result.passed = False
-
-        for i, rel_key in enumerate(corrupted):
-            pct = 70 + int(i / len(corrupted) * 25)
-            _progress(pct, f"Repariere {rel_key.split('/')[-1]}...")
-
-            if _restore_file(rel_key, local_version):
-                result.files_fixed += 1
-                result.files_ok    += 1
-                _log.info(f"Repariert: {rel_key}")
-            else:
-                result.files_failed.append(rel_key)
-                _log.error(f"Konnte nicht reparieren: {rel_key}")
-
-        if not result.files_failed:
-            result.passed = True
-            _log.info("Alle Dateien erfolgreich repariert")
-        else:
-            _log.error(f"{len(result.files_failed)} Datei(en) konnten nicht repariert werden")
+    result.passed = not result.needs_repair
+    if result.needs_repair:
+        n = len(result.missing_files) + len(result.corrupted_files)
+        _log.warning(f"{n} Datei(en) benötigen Reparatur (fehlend: {len(result.missing_files)}, "
+                     f"manipuliert: {len(result.corrupted_files)})")
     else:
         _log.info("Alle Dateien OK")
 
@@ -400,13 +397,16 @@ def run_check(progress_callback=None) -> IntegrityResult:
     return result
 
 
-# ── Checksummen generieren ────────────────────────────────────
+# ── Checksummen generieren (für security_generator.bat / release.bat) ──
 
 def generate_checksums(output_path: Path = None) -> dict:
     """
     Generiert checksums.json für alle Dateien in eve_toolbox/.
     WICHTIG: Verwendet die gleiche Hash-Logik wie beim Prüfen
     (Zeilenenden-Normalisierung) damit Hashes immer übereinstimmen.
+    Signierung passiert NICHT hier, sondern separat über
+    core.release_crypto.sign_data() in den .bat-Skripten — diese
+    Funktion erzeugt nur die unsignierten Rohdaten.
     """
     if output_path is None:
         output_path = APP_DIR / "checksums.json"

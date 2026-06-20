@@ -12,6 +12,7 @@ from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QBrush, QPainterPath
 
 from core.config import FACTIONS
 from core import esi as esi_mod
+from core.i18n import t
 
 
 class CharRow(QWidget):
@@ -170,7 +171,7 @@ class AccountPopup(QWidget):
             self._add_btn.setText(f"⏳  {countdown}s")
         else:
             self._add_btn.setEnabled(True)
-            self._add_btn.setText("＋  Account hinzufügen")
+            self._add_btn.setText(t("settings.add_account_short"))
 
     def _on_add(self):
         """Login-Anfrage → Account-Verwaltung öffnen."""
@@ -223,7 +224,7 @@ class AccountPopup(QWidget):
         fl.setContentsMargins(12, 8, 12, 8)
         fl.setSpacing(6)
 
-        add_btn = QPushButton("＋  Account hinzufügen")
+        add_btn = QPushButton(t("settings.add_account_short"))
         add_btn.setObjectName("AccentBtn")
         add_btn.setFixedHeight(28)
         add_btn.clicked.connect(self._on_add)

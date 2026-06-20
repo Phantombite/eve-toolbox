@@ -40,6 +40,22 @@ if not exist "checksums.json" (
     )
 )
 
+if not exist "checksums.json.sig" (
+    echo  [FEHLT] checksums.json.sig nicht gefunden!
+    echo         security_generator.bat ausfuehren ^(signiert bei jedem Lauf neu^).
+    set SEC_OK=0
+) else (
+    echo  [  OK ] checksums.json.sig vorhanden
+)
+
+if not exist "release_cert.json" (
+    echo  [FEHLT] release_cert.json nicht gefunden!
+    echo         security_generator.bat Modus 1 ausfuehren ^(braucht Root Key vom Stick^).
+    set SEC_OK=0
+) else (
+    echo  [  OK ] release_cert.json vorhanden
+)
+
 if not exist "dev_pubkey.pem" (
     echo  [FEHLT] dev_pubkey.pem nicht gefunden!
     set SEC_OK=0
@@ -53,9 +69,46 @@ if errorlevel 1 (
     python -m pip install cryptography --quiet
 )
 
-if exist "dev_mode.flag" if exist "dev_pubkey.pem" (
-    python -c "from cryptography.hazmat.primitives import hashes,serialization; from cryptography.hazmat.primitives.asymmetric import padding; import base64; from pathlib import Path; pub=serialization.load_pem_public_key(Path('dev_pubkey.pem').read_bytes()); pub.verify(base64.b64decode(Path('dev_mode.flag').read_text().strip()),b'EVEToolbox-DevMode',padding.PKCS1v15(),hashes.SHA256())" >nul 2>&1
+:: Zertifikat gegen Root Key im Code pruefen — NICHT direkt gegen
+:: dev_pubkey.pem. Schlaegt das fehl, wurde der ROOT Public Key
+:: vermutlich noch nicht in release_crypto.py eingetragen, oder das
+:: Zertifikat passt nicht zum aktuellen Release Key.
+if exist "release_cert.json" (
+    > _sec_v0.py echo import sys
+    >> _sec_v0.py echo sys.path.insert^(0, r"%CD%\eve_toolbox"^)
+    >> _sec_v0.py echo from core.release_crypto import load_release_cert
+    >> _sec_v0.py echo from pathlib import Path
+    >> _sec_v0.py echo key = load_release_cert^(Path^('release_cert.json'^)^)
+    >> _sec_v0.py echo sys.exit^(0 if key else 1^)
+    python _sec_v0.py >nul 2>&1
+    if errorlevel 1 ( echo  [FEHLER] release_cert.json ungueltig gegen Root Key im Code! & set SEC_OK=0 ) else ( echo  [  OK ] release_cert.json gueltig - Release Key autorisiert )
+    del _sec_v0.py >nul 2>&1
+)
+
+:: Checksums-Signatur gegen den im Zertifikat autorisierten Release Key
+if exist "checksums.json" if exist "checksums.json.sig" if exist "release_cert.json" (
+    > _sec_v1.py echo import sys
+    >> _sec_v1.py echo sys.path.insert^(0, r"%CD%\eve_toolbox"^)
+    >> _sec_v1.py echo from core.release_crypto import verify_release_signature
+    >> _sec_v1.py echo from pathlib import Path
+    >> _sec_v1.py echo data = Path^('checksums.json'^).read_bytes^(^)
+    >> _sec_v1.py echo sig = Path^('checksums.json.sig'^).read_text^(^).strip^(^)
+    >> _sec_v1.py echo sys.exit^(0 if verify_release_signature^(data, sig, cert_path=Path^('release_cert.json'^)^) else 1^)
+    python _sec_v1.py >nul 2>&1
+    if errorlevel 1 ( echo  [FEHLER] checksums.json Signatur ungueltig gegen autorisierten Release Key! & set SEC_OK=0 ) else ( echo  [  OK ] checksums.json Signatur gueltig )
+    del _sec_v1.py >nul 2>&1
+)
+
+if exist "dev_mode.flag" if exist "release_cert.json" (
+    > _sec_v2.py echo import sys
+    >> _sec_v2.py echo sys.path.insert^(0, r"%CD%\eve_toolbox"^)
+    >> _sec_v2.py echo from core.release_crypto import verify_dev_token
+    >> _sec_v2.py echo from pathlib import Path
+    >> _sec_v2.py echo token = Path^('dev_mode.flag'^).read_text^(^).strip^(^)
+    >> _sec_v2.py echo sys.exit^(0 if verify_dev_token^(token, Path^('release_cert.json'^)^) else 1^)
+    python _sec_v2.py >nul 2>&1
     if errorlevel 1 ( echo  [FEHLER] Dev-Token ungueltig! & set SEC_OK=0 ) else ( echo  [  OK ] Dev-Token gueltig )
+    del _sec_v2.py >nul 2>&1
 )
 
 echo.
@@ -208,94 +261,24 @@ echo.
 
 :ask_3
 set C=
-set /p C="  Weiter mit ZIP und EXE kopieren? (y/n) > "
+set /p C="  Weiter mit Checksums generieren? (y/n) > "
 if /i "!C!"=="y" goto :step4
 if /i "!C!"=="n" goto :ask_exit
 echo  Bitte y oder n eingeben.
 goto :ask_3
 
 :: ════════════════════════════════════════════════
-::  SCHRITT 4: ZIP erstellen + EXE kopieren
+::  SCHRITT 4: Checksums generieren + signieren
+::  MUSS vor dem ZIP-Bau passieren — sonst signiert
+::  man Pruefsummen eines Standes, der nicht mehr
+::  dem ausgelieferten ZIP entspricht. Nach diesem
+::  Schritt duerfen KEINE Dateien mehr veraendert
+::  werden, bevor die ZIP gebaut ist.
 :: ════════════════════════════════════════════════
 :step4
 echo.
 echo  +------------------------------------------------+
-echo  ^|  Schritt 4/5 - ZIP erstellen + EXE kopieren   ^|
-echo  +------------------------------------------------+
-echo.
-
-:: ZIP erstellen - nur Quellcode, nicht den PyInstaller Output
-if exist "eve_toolbox.zip" del "eve_toolbox.zip" >nul 2>&1
-echo  [...] Erstelle eve_toolbox.zip...
-
-set "ROOT=%CD%"
-set "DIST=%CD%\build\dist\EVE_Toolbox"
-> _zip_tmp.py echo import zipfile
->> _zip_tmp.py echo from pathlib import Path
->> _zip_tmp.py echo root  = Path(r'!ROOT!')
->> _zip_tmp.py echo dist  = Path(r'!DIST!')
->> _zip_tmp.py echo out   = Path('eve_toolbox.zip')
->> _zip_tmp.py echo SKIP_DIRS = {'__pycache__', 'tokens', '.git'}
->> _zip_tmp.py echo SKIP_EXT  = {'.pyc', '.pyo', '.log', '.zip'}
->> _zip_tmp.py echo count = 0
->> _zip_tmp.py echo with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as z:
->> _zip_tmp.py echo     # 1. eve_toolbox Quellcode
->> _zip_tmp.py echo     src = root / 'eve_toolbox'
->> _zip_tmp.py echo     for f in src.rglob('*'):
->> _zip_tmp.py echo         if not f.is_file(): continue
->> _zip_tmp.py echo         if any(s in f.parts for s in SKIP_DIRS): continue
->> _zip_tmp.py echo         if f.suffix.lower() in SKIP_EXT: continue
->> _zip_tmp.py echo         z.write(f, Path('eve_toolbox') / f.relative_to(src))
->> _zip_tmp.py echo         count += 1
->> _zip_tmp.py echo     # 2. EXE und _internal vom Build
->> _zip_tmp.py echo     for f in dist.rglob('*'):
->> _zip_tmp.py echo         if not f.is_file(): continue
->> _zip_tmp.py echo         z.write(f, f.relative_to(dist))
->> _zip_tmp.py echo         count += 1
->> _zip_tmp.py echo     # 3. Einzelne Dateien aus Root
->> _zip_tmp.py echo     for fname in ('version.json', 'checksums.json', 'dev_pubkey.pem'):
->> _zip_tmp.py echo         fp = root / fname
->> _zip_tmp.py echo         if fp.exists():
->> _zip_tmp.py echo             z.write(fp, fname)
->> _zip_tmp.py echo             count += 1
->> _zip_tmp.py echo print(f'{count} Dateien gepackt')
-python _zip_tmp.py
-del _zip_tmp.py >nul 2>&1
-
-if errorlevel 1 ( echo  [FEHLER] ZIP fehlgeschlagen! & set ERRORS=1 & goto :report )
-if not exist "eve_toolbox.zip" ( echo  [FEHLER] ZIP nicht erstellt! & set ERRORS=1 & goto :report )
-for %%f in ("eve_toolbox.zip") do echo  [  OK ] eve_toolbox.zip erstellt ^(%%~zf bytes^)
-
-:: Alten Release-Ordner loeschen und neu kopieren
-echo.
-echo  [...] Kopiere Release-Dateien ins Hauptverzeichnis...
-if exist "EVE_Toolbox.exe" del "EVE_Toolbox.exe" >nul 2>&1
-if exist "_internal" rmdir /s /q "_internal" >nul 2>&1
-xcopy "build\dist\EVE_Toolbox\*" "." /E /Y /Q >nul 2>&1
-if errorlevel 1 (
-    echo  [FEHLER] Kopieren fehlgeschlagen!
-    set ERRORS=1
-) else (
-    echo  [  OK ] EVE_Toolbox.exe aktualisiert
-    echo  [  OK ] _internal\ aktualisiert
-)
-echo.
-
-:ask_4
-set C=
-set /p C="  Weiter mit Checksums aktualisieren? (y/n) > "
-if /i "!C!"=="y" goto :step5
-if /i "!C!"=="n" goto :report
-echo  Bitte y oder n eingeben.
-goto :ask_4
-
-:: ════════════════════════════════════════════════
-::  SCHRITT 5: Checksums neu generieren
-:: ════════════════════════════════════════════════
-:step5
-echo.
-echo  +------------------------------------------------+
-echo  ^|  Schritt 5/5 - Checksums aktualisieren        ^|
+echo  ^|  Schritt 4/5 - Checksums generieren + signieren ^|
 echo  +------------------------------------------------+
 echo.
 
@@ -309,7 +292,175 @@ set "CSDIR=%CD%"
 python _cs_tmp.py
 del _cs_tmp.py >nul 2>&1
 
-if errorlevel 1 ( echo  [FEHLER] Checksums fehlgeschlagen! & set ERRORS=1 ) else ( echo  [  OK ] checksums.json aktualisiert )
+if errorlevel 1 ( echo  [FEHLER] Checksums fehlgeschlagen! & set ERRORS=1 & goto :report ) else ( echo  [  OK ] checksums.json aktualisiert )
+echo.
+
+if not exist "dev_privkey.pem" (
+    echo  [FEHLER] dev_privkey.pem fehlt - kann nicht signieren!
+    echo           security_generator.bat ausfuehren.
+    set ERRORS=1
+    goto :report
+)
+if not exist "release_cert.json" (
+    echo  [FEHLER] release_cert.json fehlt - Release Key noch nicht autorisiert!
+    echo           security_generator.bat Modus 1 ausfuehren ^(braucht Root Key vom Stick^).
+    set ERRORS=1
+    goto :report
+)
+echo  [...] Signiere checksums.json...
+> _sig_tmp.py echo import sys
+>> _sig_tmp.py echo sys.path.insert(0, r'!CSDIR!\eve_toolbox')
+>> _sig_tmp.py echo from core.release_crypto import sign_data
+>> _sig_tmp.py echo from pathlib import Path
+>> _sig_tmp.py echo data = Path(r'!CSDIR!\checksums.json').read_bytes()
+>> _sig_tmp.py echo sig = sign_data(data, Path(r'!CSDIR!\dev_privkey.pem'))
+>> _sig_tmp.py echo Path(r'!CSDIR!\checksums.json.sig').write_text(sig, encoding='utf-8')
+>> _sig_tmp.py echo print('checksums.json.sig aktualisiert')
+python _sig_tmp.py
+del _sig_tmp.py >nul 2>&1
+if errorlevel 1 ( echo  [FEHLER] Signierung fehlgeschlagen! & set ERRORS=1 & goto :report ) else ( echo  [  OK ] checksums.json.sig aktualisiert )
+echo.
+
+:: ── stable_version.json setzen + signieren ─────────────────
+:: release.bat setzt IMMER die aktuell veroeffentlichte Version als
+:: stable — ein gezielter Rollback auf eine AELTERE Version laeuft
+:: ausschliesslich ueber downgrade.bat, niemals hier automatisch.
+echo  [...] Setze stable_version.json auf v!NEW_VERSION!...
+> _stable_tmp.py echo import json
+>> _stable_tmp.py echo from pathlib import Path
+>> _stable_tmp.py echo data = {"version": "!NEW_VERSION!", "mandatory": False}
+>> _stable_tmp.py echo Path(r'!CSDIR!\stable_version.json').write_text(json.dumps(data, indent=2), encoding='utf-8')
+>> _stable_tmp.py echo print('stable_version.json gesetzt')
+python _stable_tmp.py
+del _stable_tmp.py >nul 2>&1
+if errorlevel 1 ( echo  [FEHLER] stable_version.json fehlgeschlagen! & set ERRORS=1 & goto :report )
+
+> _stable_sig_tmp.py echo import sys
+>> _stable_sig_tmp.py echo sys.path.insert(0, r'!CSDIR!\eve_toolbox')
+>> _stable_sig_tmp.py echo from core.release_crypto import sign_data
+>> _stable_sig_tmp.py echo from pathlib import Path
+>> _stable_sig_tmp.py echo data = Path(r'!CSDIR!\stable_version.json').read_bytes()
+>> _stable_sig_tmp.py echo sig = sign_data(data, Path(r'!CSDIR!\dev_privkey.pem'))
+>> _stable_sig_tmp.py echo Path(r'!CSDIR!\stable_version.json.sig').write_text(sig, encoding='utf-8')
+>> _stable_sig_tmp.py echo print('stable_version.json.sig erstellt')
+python _stable_sig_tmp.py
+del _stable_sig_tmp.py >nul 2>&1
+if errorlevel 1 ( echo  [FEHLER] stable_version.json Signierung fehlgeschlagen! & set ERRORS=1 & goto :report ) else ( echo  [  OK ] stable_version.json signiert )
+echo.
+echo  +------------------------------------------------+
+echo  ^|  AB JETZT: keine Dateien mehr veraendern!     ^|
+echo  ^|  Checksums sind signiert - der naechste       ^|
+echo  ^|  Schritt baut die ZIP exakt aus diesem Stand. ^|
+echo  +------------------------------------------------+
+echo.
+
+:ask_4
+set C=
+set /p C="  Weiter mit ZIP bauen + signieren? (y/n) > "
+if /i "!C!"=="y" goto :step5
+if /i "!C!"=="n" goto :report
+echo  Bitte y oder n eingeben.
+goto :ask_4
+
+:: ════════════════════════════════════════════════
+::  SCHRITT 5: ZIP erstellen + EXE kopieren + ZIP signieren
+::  Reihenfolge: Dateien fertig -> Checksums signiert
+::  (Schritt 4) -> JETZT ZIP bauen -> ZIP signieren.
+::  Nach der ZIP-Signierung darf NICHTS mehr in die
+::  ZIP eingefuegt oder entfernt werden.
+:: ════════════════════════════════════════════════
+:step5
+echo.
+echo  +------------------------------------------------+
+echo  ^|  Schritt 5/5 - ZIP erstellen + signieren      ^|
+echo  +------------------------------------------------+
+echo.
+
+:: ZIP erstellen - nur Quellcode, nicht den PyInstaller Output
+if exist "eve_toolbox.zip" del "eve_toolbox.zip" >nul 2>&1
+if exist "eve_toolbox.zip.sig" del "eve_toolbox.zip.sig" >nul 2>&1
+echo  [...] Erstelle eve_toolbox.zip...
+
+set "ROOT=%CD%"
+set "DIST=%CD%\build\dist\EVE_Toolbox"
+> _zip_tmp.py echo import zipfile
+>> _zip_tmp.py echo from pathlib import Path
+>> _zip_tmp.py echo root  = Path(r'!ROOT!')
+>> _zip_tmp.py echo dist  = Path(r'!DIST!')
+>> _zip_tmp.py echo out   = Path('eve_toolbox.zip')
+>> _zip_tmp.py echo SKIP_DIRS = {'__pycache__', 'tokens', '.git'}
+>> _zip_tmp.py echo SKIP_EXT  = {'.pyc', '.pyo', '.log', '.zip', '.bak'}
+>> _zip_tmp.py echo SKIP_NAMES = {'_embed_pubkey.py'}
+>> _zip_tmp.py echo count = 0
+>> _zip_tmp.py echo with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as z:
+>> _zip_tmp.py echo     # 1. eve_toolbox Quellcode (Checksums sind bereits signiert,
+>> _zip_tmp.py echo     # diese Dateien duerfen sich ab jetzt nicht mehr aendern)
+>> _zip_tmp.py echo     src = root / 'eve_toolbox'
+>> _zip_tmp.py echo     for f in src.rglob('*'):
+>> _zip_tmp.py echo         if not f.is_file(): continue
+>> _zip_tmp.py echo         if any(s in f.parts for s in SKIP_DIRS): continue
+>> _zip_tmp.py echo         if f.suffix.lower() in SKIP_EXT: continue
+>> _zip_tmp.py echo         if f.name in SKIP_NAMES: continue
+>> _zip_tmp.py echo         z.write(f, Path('eve_toolbox') / f.relative_to(src))
+>> _zip_tmp.py echo         count += 1
+>> _zip_tmp.py echo     # 2. EXE und _internal vom Build
+>> _zip_tmp.py echo     for f in dist.rglob('*'):
+>> _zip_tmp.py echo         if not f.is_file(): continue
+>> _zip_tmp.py echo         z.write(f, f.relative_to(dist))
+>> _zip_tmp.py echo         count += 1
+>> _zip_tmp.py echo     # 3. Einzelne Dateien aus Root — bereits signierte Checksums
+>> _zip_tmp.py echo     for fname in ('version.json', 'checksums.json', 'checksums.json.sig', 'release_cert.json', 'stable_version.json', 'stable_version.json.sig', 'dev_pubkey.pem'):
+>> _zip_tmp.py echo         fp = root / fname
+>> _zip_tmp.py echo         if fp.exists():
+>> _zip_tmp.py echo             z.write(fp, fname)
+>> _zip_tmp.py echo             count += 1
+>> _zip_tmp.py echo print(f'{count} Dateien gepackt')
+python _zip_tmp.py
+del _zip_tmp.py >nul 2>&1
+
+if errorlevel 1 ( echo  [FEHLER] ZIP fehlgeschlagen! & set ERRORS=1 & goto :report )
+if not exist "eve_toolbox.zip" ( echo  [FEHLER] ZIP nicht erstellt! & set ERRORS=1 & goto :report )
+for %%f in ("eve_toolbox.zip") do echo  [  OK ] eve_toolbox.zip erstellt ^(%%~zf bytes^)
+echo.
+
+:: ── ZIP selbst signieren ────────────────────────────
+:: Zusaetzlich zur checksums.json-Signatur wird jetzt
+:: auch die fertige ZIP-Datei als Ganzes signiert. Das
+:: schuetzt den Erstinstall-Fall (neuer Nutzer laedt nur
+:: die ZIP von GitHub Releases, ohne vorher checksums.json
+:: geprueft zu haben).
+echo  [...] Signiere eve_toolbox.zip...
+> _zipsig_tmp.py echo import sys
+>> _zipsig_tmp.py echo sys.path.insert(0, r'!CSDIR!\eve_toolbox')
+>> _zipsig_tmp.py echo from core.release_crypto import sign_data
+>> _zipsig_tmp.py echo from pathlib import Path
+>> _zipsig_tmp.py echo data = Path(r'!CSDIR!\eve_toolbox.zip').read_bytes()
+>> _zipsig_tmp.py echo sig = sign_data(data, Path(r'!CSDIR!\dev_privkey.pem'))
+>> _zipsig_tmp.py echo Path(r'!CSDIR!\eve_toolbox.zip.sig').write_text(sig, encoding='utf-8')
+>> _zipsig_tmp.py echo print('eve_toolbox.zip.sig erstellt')
+python _zipsig_tmp.py
+del _zipsig_tmp.py >nul 2>&1
+if errorlevel 1 ( echo  [FEHLER] ZIP-Signierung fehlgeschlagen! & set ERRORS=1 & goto :report ) else ( echo  [  OK ] eve_toolbox.zip.sig erstellt )
+echo.
+echo  +------------------------------------------------+
+echo  ^|  AB JETZT: ZIP nicht mehr veraendern!          ^|
+echo  ^|  Keine Datei mehr einfuegen oder entfernen -   ^|
+echo  ^|  die Signatur gilt fuer genau diesen ZIP-Inhalt.^|
+echo  +------------------------------------------------+
+echo.
+
+:: Alten Release-Ordner loeschen und neu kopieren
+echo  [...] Kopiere Release-Dateien ins Hauptverzeichnis...
+if exist "EVE_Toolbox.exe" del "EVE_Toolbox.exe" >nul 2>&1
+if exist "_internal" rmdir /s /q "_internal" >nul 2>&1
+xcopy "build\dist\EVE_Toolbox\*" "." /E /Y /Q >nul 2>&1
+if errorlevel 1 (
+    echo  [FEHLER] Kopieren fehlgeschlagen!
+    set ERRORS=1
+) else (
+    echo  [  OK ] EVE_Toolbox.exe aktualisiert
+    echo  [  OK ] _internal\ aktualisiert
+)
 echo.
 
 :: ════════════════════════════════════════════════
@@ -333,19 +484,27 @@ echo  +------------------------------------------------+
 echo  Committen und pushen:
 echo  [ GIT ] version.json
 echo  [ GIT ] checksums.json
+echo  [ GIT ] checksums.json.sig
+echo  [ GIT ] release_cert.json
+echo  [ GIT ] stable_version.json
+echo  [ GIT ] stable_version.json.sig
 echo  [ GIT ] dev_pubkey.pem  ^(falls neu erstellt^)
+echo  [ GIT ] core\release_crypto.py  ^(falls Root Key neu eingetragen^)
 echo.
 echo  +------------------------------------------------+
 echo  ^|  Dann auf github.com - neues Release:         ^|
 echo  +------------------------------------------------+
 echo  [ GIT ] Tag: v!NEW_VERSION!
 echo  [ GIT ] ZIP hochladen: eve_toolbox.zip
+echo  [ GIT ] Signatur hochladen: eve_toolbox.zip.sig
+echo  [ GIT ] Zertifikat hochladen: release_cert.json
 echo.
 echo  +------------------------------------------------+
-echo  ^|  NIEMALS pushen:                              ^|
+echo  ^|  NIEMALS pushen oder hochladen:               ^|
 echo  +------------------------------------------------+
 echo  [ X ] dev_privkey.pem
 echo  [ X ] dev_mode.flag
+echo  [ X ] ROOT_KEY_SICHERN\ ^(falls noch vorhanden^)
 echo.
 
 :ask_exit

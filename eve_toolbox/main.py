@@ -29,6 +29,7 @@ clear_pycache()
 
 from core import settings as cfg
 from core import logger
+from core.config import APP_VERSION
 log = logger.get("main")
 
 
@@ -74,6 +75,15 @@ def main():
         welcome.setup_complete.connect(_on_setup)
         welcome.exec()
 
+    # ── Master-Passwort: KEIN erzwungener Schritt beim Start ───
+    # Bewusst kein PasswordSetupScreen hier: das Programm soll ohne
+    # Passwort starten und öffentliche Funktionen (z.B. normaler Markt
+    # ohne Login) sofort funktionieren. Das Master-Passwort wird erst
+    # gebraucht, wenn zum ersten Mal eine account-gebundene Funktion
+    # aufgerufen wird — dann übernimmt core.crypto_vault.unlock_session()
+    # automatisch die Erstanlage, falls noch kein Vault existiert
+    # (siehe ui/unlock_popup.py). Kein separater Onboarding-Dialog nötig.
+
     # ── Splash Screen ─────────────────────────────────────────
     splash = SplashScreen(s)
     splash.show()
@@ -91,21 +101,47 @@ def main():
         splash.close()
         log.info(f"Hauptfenster geöffnet ({w}x{h})")
 
+        if getattr(_run_startup, "dev_mode_triggered", False):
+            from ui.dev_mode_notice import DevModeNoticeDialog
+            notice = DevModeNoticeDialog(window)
+            notice.exec()
+
+        security_warning = getattr(_run_startup, "security_warning", None)
+        if security_warning:
+            from ui.security_warning_dialog import SecurityWarningDialog
+            warn_title, warn_msg = security_warning
+            warn_dlg = SecurityWarningDialog(warn_title, warn_msg, window)
+            warn_dlg.exec()
+
     def _run_startup():
         log.debug("Startup-Sequenz gestartet")
         splash.set_status(t("splash.initializing"), 5)
         app.processEvents()
 
-        # ── Dev: Checks überspringen wenn EVE_SKIP_CHECKS gesetzt ──
-        # Wird von debug.bat gesetzt damit lokale Entwicklung nicht
-        # gegen GitHub validiert wird (sonst würde jede lokale Änderung
-        # als "manipuliert" erkannt werden bevor sie gepusht ist).
+        # ── Dev: Checks überspringen — NUR mit gültigem Dev-Token ──
+        # EVE_SKIP_CHECKS wird von debug.bat gesetzt, damit lokale
+        # Entwicklung nicht bei jedem Start gegen GitHub validiert wird.
+        # Anders als zuvor reicht die Variable allein NICHT mehr aus:
+        # sie wird nur akzeptiert, wenn zusätzlich ein gültiger,
+        # signierter Dev-Token (dev_mode.flag) vorhanden ist — derselbe
+        # Trusted-Keys-Mechanismus wie für Release-Signaturen. Eine
+        # blanke Umgebungsvariable allein kann von jedem gesetzt werden;
+        # ein gültiger Token kann nur von jemandem mit dem privaten
+        # Schlüssel erzeugt werden (core.release_crypto.sign_data()).
         if os.environ.get("EVE_SKIP_CHECKS") == "1":
-            log.warning("EVE_SKIP_CHECKS aktiv — Integritäts- und Update-Check übersprungen (DEV)")
-            splash.set_status("Dev-Modus: Checks übersprungen", 90)
-            app.processEvents()
-            QTimer.singleShot(300, splash.finish)
-            return
+            if integrity.check_dev_token():
+                log.warning("EVE_SKIP_CHECKS + gültiger Dev-Token — Integritäts-/Update-Check übersprungen (DEV)")
+                splash.set_status("Dev-Modus: Checks übersprungen", 90)
+                app.processEvents()
+                _run_startup.dev_mode_triggered = True
+                QTimer.singleShot(300, splash.finish)
+                return
+            else:
+                log.error(
+                    "EVE_SKIP_CHECKS gesetzt, aber KEIN gültiger Dev-Token gefunden — "
+                    "Variable wird ignoriert, voller Check läuft trotzdem."
+                )
+                # Bewusst kein return hier — Ablauf fällt durch zum vollen Check.
 
         # ── Alte _old Dateien vom letzten Update löschen ──────
         updater.cleanup_old_files()
@@ -124,16 +160,28 @@ def main():
 
         log.info("Starte Mini-Integritätscheck...")
         mini_result = integrity.mini_check(progress_callback=_mini_progress)
-        if mini_result.files_fixed:
-            log.info(f"Mini-Check: {mini_result.files_fixed} kritische Datei(en) repariert")
+
+        if mini_result.signature_valid is False and not mini_result.offline:
+            log.error("Mini-Check: Signatur von checksums.json UNGÜLTIG — Reparatur nicht möglich")
+        elif mini_result.needs_repair:
+            to_fix = mini_result.missing_files + mini_result.corrupted_files
+            log.info(f"Mini-Check: {len(to_fix)} kritische Datei(en) werden repariert...")
+            local_version = integrity.get_local_version()
+            fixed, failed = updater.repair_files(to_fix, local_version, verified_signature=True)
+            if failed:
+                log.error(f"Mini-Check: {len(failed)} Datei(en) konnten nicht repariert werden: {failed}")
+            else:
+                log.info(f"Mini-Check: {len(fixed)} kritische Datei(en) erfolgreich repariert")
         else:
             log.info("Mini-Check: OK")
 
         app.processEvents()
 
-        # ── Schritt 2: Update-Check ────────────────────────────
+        # ── Schritt 2: Update-Check (Block 3: Popup statt Vorab-Toggle) ──
+        # "update_auto_install" als Vorab-Einstellung gibt es nicht mehr —
+        # die Entscheidung (jetzt / beim nächsten Start) wird jedes Mal
+        # über das UpdatePopup neu getroffen, nicht einmalig festgelegt.
         check_updates = s.get("update_on_start", True)
-        auto_install  = s.get("update_auto_install", True)
 
         if not check_updates:
             log.debug("Update-Check deaktiviert")
@@ -141,6 +189,50 @@ def main():
             splash.set_phase("checking")
             splash.set_status(t("splash.checking_updates"), 22)
             app.processEvents()
+
+            # ── Stable-Version-Check (Notfall-Rollback) ────────
+            # Läuft VOR dem normalen Update-Check: ein erzwungener
+            # Rollback hat Vorrang vor einem regulären Update-Angebot.
+            log.debug("Prüfe Stable-Version...")
+            stable_status = updater.check_stable_version()
+
+            if stable_status.rollback_needed:
+                log.warning(
+                    f"Rollback empfohlen/erforderlich: v{APP_VERSION} -> "
+                    f"v{stable_status.stable_version} (mandatory={stable_status.mandatory})"
+                )
+                splash.hide()
+                from ui.update_popup import UpdatePopup
+                popup = UpdatePopup(
+                    current_version=APP_VERSION,
+                    new_version=stable_status.stable_version,
+                    notes="",
+                    mandatory=stable_status.mandatory,
+                    rollback=True,
+                    parent=None,
+                )
+                popup.exec()
+                splash.show()
+
+                if popup.result_choice == "install_now" or stable_status.mandatory:
+                    splash.set_phase("installing")
+                    splash.set_status(t("splash.creating_backup"), 35)
+                    app.processEvents()
+                    updater.create_backup()
+
+                    ok, msg = updater.download_and_install(
+                        stable_status.rollback_info,
+                        allow_downgrade=True,  # gewollter, signierter Rollback
+                        progress_callback=lambda pct: (
+                            splash.set_status(f"Rolle zurück... {pct}%", 40 + int(pct * 0.45)),
+                            app.processEvents()
+                        )
+                    )
+                    if not ok:
+                        log.error(f"Rollback fehlgeschlagen: {msg}")
+                        _run_startup.security_warning = ("Rollback fehlgeschlagen", msg)
+                # "later" bei mandatory=False: einfach normal weiterstarten,
+                # kein Download, nächster Start fragt erneut.
 
             log.debug("Prüfe auf Updates...")
             info = updater.check_sync()
@@ -150,7 +242,20 @@ def main():
                 splash.set_status(t("splash.update_found", version=info["version"]), 30)
                 app.processEvents()
 
-                if auto_install:
+                splash.hide()
+                from ui.update_popup import UpdatePopup
+                popup = UpdatePopup(
+                    current_version=APP_VERSION,
+                    new_version=info["version"],
+                    notes=info.get("notes", ""),
+                    mandatory=False,
+                    rollback=False,
+                    parent=None,
+                )
+                popup.exec()
+                splash.show()
+
+                if popup.result_choice == "install_now":
                     splash.set_phase("installing")
                     splash.set_status(t("splash.creating_backup"), 35)
                     app.processEvents()
@@ -179,7 +284,18 @@ def main():
                         splash.set_status(t("splash.failed", error=msg), 80)
                         _add_update_notif(window, info, installed=False, failed=True)
                         app.processEvents()
+                        if "Signatur" in msg or "UNGÜLTIG" in msg:
+                            _run_startup.security_warning = (
+                                "Update-Signatur ungültig",
+                                "Die heruntergeladene Update-Datei hatte eine ungültige "
+                                "Signatur und wurde verworfen — die Installation wurde "
+                                "abgebrochen, bevor irgendetwas verändert wurde. "
+                                "Die App läuft unverändert in der bisherigen Version weiter."
+                            )
                 else:
+                    # "later" — bewusst KEIN Pre-Download (Teil B der
+                    # Roadmap). Nächster Start fragt erneut, nichts liegt
+                    # in der Zwischenzeit unnötig auf der Platte.
                     _add_update_notif(window, info, installed=False)
                     splash.set_status(t("splash.no_auto_install"), 80)
                     app.processEvents()
@@ -207,12 +323,35 @@ def main():
         elif int_result.offline:
             log.warning("Offline: Integritätscheck übersprungen")
             splash.set_status(t("splash.integrity_offline"), 80)
-        elif int_result.files_failed:
-            log.error(f"Integritätscheck: {len(int_result.files_failed)} Fehler")
-            splash.set_status(t("splash.integrity_failed", n=len(int_result.files_failed)), 80)
-        elif int_result.files_fixed:
-            log.info(f"Integritätscheck: {int_result.files_fixed} Dateien repariert")
-            splash.set_status(t("splash.integrity_fixed", n=int_result.files_fixed), 80)
+        elif int_result.signature_valid is False:
+            log.error("Integritätscheck: Signatur von checksums.json UNGÜLTIG — Prüfung verworfen")
+            splash.set_status(t("splash.integrity_failed", n=0), 80)
+            _run_startup.security_warning = (
+                "Signaturprüfung fehlgeschlagen",
+                "Die Signatur der Prüfsummen-Datei konnte nicht verifiziert werden. "
+                "Aus Sicherheitsgründen wurde KEINE Integritätsprüfung und KEINE Reparatur "
+                "durchgeführt. Das kann an einer fehlenden Internetverbindung liegen, "
+                "oder die Datei wurde manipuliert. Die App funktioniert normal weiter, "
+                "Updates sind aber vorübergehend nicht möglich."
+            )
+        elif int_result.needs_repair:
+            to_fix = int_result.missing_files + int_result.corrupted_files
+            log.info(f"Integritätscheck: {len(to_fix)} Datei(en) werden repariert...")
+            local_version = integrity.get_local_version()
+
+            def _repair_progress(pct: int, status: str):
+                mapped = 80 + int(pct * 0.15)
+                splash.set_status(status, mapped)
+                app.processEvents()
+
+            fixed, failed = updater.repair_files(to_fix, local_version, verified_signature=True, progress_callback=_repair_progress)
+
+            if failed:
+                log.error(f"Integritätscheck: {len(failed)} Fehler — {failed}")
+                splash.set_status(t("splash.integrity_failed", n=len(failed)), 95)
+            else:
+                log.info(f"Integritätscheck: {len(fixed)} Dateien repariert")
+                splash.set_status(t("splash.integrity_fixed", n=len(fixed)), 95)
         else:
             log.info("Integritätscheck: Alle Dateien OK")
             splash.set_status(t("splash.integrity_ok"), 80)
@@ -255,7 +394,7 @@ def main():
                 notif_id   = f"update_avail_{info['version'].replace('.','_')}",
                 ntype      = nf.TYPE_UPDATE,
                 title      = f"Update v{info['version']} verfügbar",
-                text       = info.get("notes","") + " — Automatische Installation deaktiviert.",
+                text       = info.get("notes","") + " — Wird beim nächsten Neustart erneut angeboten.",
                 valid_until= "2099-12-31",
             )
         win._notifications = notifs

@@ -99,6 +99,42 @@ class SettingRow(QWidget):
     def add_control(self, w): self._lay.addWidget(w)
 
 
+class FlexButton(QPushButton):
+    """
+    Button für übersetzten Text, dessen Länge je nach Sprache stark
+    variieren kann (z.B. 'Lock now' EN vs. 'Jetzt sperren' DE vs.
+    'Verrouiller maintenant' FR). Statt einer festen Breite:
+        - min_width:  Button schrumpft nie darunter (auch bei kurzen
+                       Wörtern wie 'OK' bleibt er gut klickbar)
+        - max_width:  Button wächst nie darüber — verhindert, dass eine
+                       sehr lange Übersetzung (z.B. Portugiesisch) das
+                       Layout sprengt oder Nachbar-Buttons verschiebt
+    Ist der Text auch bei max_width zu lang, wird er mit '…' abgeschnitten
+    (Qt-Standard "elidieren") und der volle Text erscheint als Tooltip
+    beim Hovern — das übliche Pattern für genau dieses Problem (siehe
+    z.B. Windows Explorer, VS Code), keine Laufschrift.
+    """
+    def __init__(self, text: str, min_width: int = 90, max_width: int = 220, parent=None):
+        super().__init__(parent)
+        self._full_text = text
+        self.setMinimumWidth(min_width)
+        self.setMaximumWidth(max_width)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self._apply_text(text)
+
+    def setText(self, text: str) -> None:
+        self._full_text = text
+        self._apply_text(text)
+
+    def _apply_text(self, text: str) -> None:
+        metrics = self.fontMetrics()
+        # Verfügbare Breite abzüglich etwas Innenabstand für den Elide-Test
+        available = self.maximumWidth() - 20
+        elided = metrics.elidedText(text, Qt.TextElideMode.ElideRight, available)
+        super().setText(elided)
+        self.setToolTip(text if elided != text else "")
+
+
 class ToggleBtn(QPushButton):
     def __init__(self, checked=False, parent=None):
         super().__init__(parent)
@@ -377,15 +413,15 @@ class PageFunktionsInfo(QWidget):
             "geplant":     ("○",  "#888888"),
         }
         STATUS_LABELS = {
-            "fertig":      "Fertig",
-            "entwicklung": "In Entwicklung",
-            "geplant":     "Geplant",
+            "fertig":      t("settings.status_ready"),
+            "entwicklung": t("settings.status_dev"),
+            "geplant":     t("settings.status_planned"),
         }
 
         for mod in MODULES:
             status = mod.get("status", "geplant")
             icon, color = STATUS_ICONS.get(status, ("○", "#888"))
-            label = STATUS_LABELS.get(status, "Geplant")
+            label = STATUS_LABELS.get(status, t("settings.status_planned"))
 
             row = SettingRow(mod["name"], mod["desc"])
             badge = QLabel(f"{icon}  {label}")
@@ -441,14 +477,43 @@ class PageEntwickler(QWidget):
         lay.addWidget(hline()); lay.addSpacing(4)
 
         # Testmodus
-        row2 = SettingRow(t("settings.test_mode"),
-                          "Hebt ALLE Sperren auf — auch geplante Module.\n"
-                          "Nur verfügbar wenn Entwicklermodus aktiv ist.")
+        row2 = SettingRow(t("settings.test_mode"), t("settings.test_mode_desc"))
         self._test_btn = ToggleBtn(self.settings.get("test_mode", False))
         self._test_btn.setEnabled(self.settings.get("dev_mode", False))
         self._test_btn.clicked.connect(
             lambda: self.test_mode_changed.emit(self._test_btn.isChecked()))
         row2.add_control(self._test_btn); lay.addWidget(row2)
+
+        # ── Notfall-Rollback ───────────────────────────────────
+        # NICHT an das settings.json "dev_mode"-Flag gekoppelt — das
+        # könnte jeder beliebig umschalten. Stattdessen an den echten,
+        # kryptographischen Dev-Token (core.integrity.check_dev_token()):
+        # nur wer den privaten Release Key besitzt, kann einen gültigen
+        # Token erzeugen. Ohne gültigen Token ist dieser ganze Abschnitt
+        # unsichtbar — es gibt für normale Nutzer keinen UI-Pfad zu
+        # restore_backup() (Rollback-Risiko, siehe Roadmap Block 3).
+        from core import integrity as _integrity
+        from core import updater as _updater
+        if _integrity.check_dev_token():
+            lay.addWidget(hline()); lay.addSpacing(12)
+            lbl_rb = QLabel(t("settings.emergency_rollback"))
+            lbl_rb.setFont(QFont("Segoe UI", 13, QFont.Weight.DemiBold))
+            lbl_rb.setStyleSheet("background: transparent;")
+            lay.addWidget(lbl_rb)
+            lay.addWidget(hline()); lay.addSpacing(8)
+
+            backup_ver = _updater.get_backup_version()
+            has_backup = _updater.has_backup()
+            sub = (t("settings.backup_available_local").format(version=backup_ver)
+                   if has_backup else t("settings.no_backup_local"))
+            row_rb = SettingRow(t("settings.rollback_to_backup"), sub)
+            self._restore_btn = FlexButton(t("settings.rollback_button"), min_width=100, max_width=200)
+            self._restore_btn.setObjectName("AccentBtn")
+            self._restore_btn.setEnabled(has_backup)
+            self._restore_btn.clicked.connect(self._do_restore)
+            row_rb.add_control(self._restore_btn)
+            lay.addWidget(row_rb)
+
         lay.addStretch()
 
         outer = QVBoxLayout(self)
@@ -463,6 +528,27 @@ class PageEntwickler(QWidget):
             self._test_btn.setText("OFF")
             self.test_mode_changed.emit(False)
         self.dev_mode_changed.emit(enabled)
+
+    def _do_restore(self):
+        """Nur erreichbar, wenn dieser Codepfad überhaupt sichtbar wurde
+        (siehe Konstruktor: check_dev_token() muss gültig gewesen sein)."""
+        from PyQt6.QtWidgets import QMessageBox
+        from core import updater
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Notfall-Rollback")
+        backup_ver = updater.get_backup_version()
+        msg.setText(f"Auf Backup-Version {backup_ver} zurücksetzen?")
+        msg.setInformativeText(
+            "Die aktuelle Version wird ersetzt. Die App muss danach neu gestartet werden.")
+        msg.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        msg.setDefaultButton(QMessageBox.StandardButton.No)
+        if msg.exec() == QMessageBox.StandardButton.Yes:
+            ok, msg_text = updater.restore_backup()
+            info = QMessageBox(self)
+            info.setWindowTitle("Wiederherstellung")
+            info.setText(msg_text)
+            info.exec()
 
     def sync(self):
         dev = self.settings.get("dev_mode", False)
@@ -506,9 +592,10 @@ class PageZuruecksetzen(QWidget):
 
         for label, sub, what, danger in items:
             row = SettingRow(label, sub)
-            btn = QPushButton("⚠  Zurücksetzen" if danger else t("settings.reset_btn"))
+            btn = FlexButton(
+                t("settings.reset_btn_danger") if danger else t("settings.reset_btn"),
+                min_width=100, max_width=200)
             btn.setObjectName("AccentBtn")
-            btn.setFixedWidth(160)
             if danger:
                 btn.setStyleSheet("background: #993C1D; color: white;")
             btn.clicked.connect(lambda checked, w=what: self._confirm(w))
@@ -539,6 +626,207 @@ class PageZuruecksetzen(QWidget):
     def sync(self): pass
 
 
+class PageSicherheit(QWidget):
+    """
+    Sicherheits-Reiter: Master-Passwort ändern, Auto-Lock-Zeit, manuelles
+    Sperren, sowie der Lösch-Notausgang. Spiegelt den Sperr-/Entsperr-
+    Zustand des core.crypto_vault Singletons, fasst aber selbst keine
+    Account-Daten an außer über die dort definierte API.
+    """
+    lock_requested        = pyqtSignal()       # "Jetzt sperren" geklickt
+    autolock_changed      = pyqtSignal(int)    # neue Auto-Lock-Minuten
+    lock_on_minimize_changed = pyqtSignal(bool)
+    delete_once_changed   = pyqtSignal(bool)
+    delete_always_changed = pyqtSignal(bool)
+
+    # Minuten-Werte für die Auto-Lock Auswahl, in fester Reihenfolge
+    _AUTOLOCK_OPTIONS = [0, 5, 15, 30, 60]
+
+    def __init__(self, settings: dict, parent=None):
+        super().__init__(parent)
+        self.settings = settings
+        inner = QWidget()
+        lay = QVBoxLayout(inner)
+        lay.setContentsMargins(32, 24, 32, 24)
+        lay.setSpacing(0)
+        lay.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        lay.addWidget(section(t("security.tab_title")))
+        lay.addWidget(hline())
+        lay.addSpacing(12)
+
+        # ── Passwort ändern ────────────────────────────────────
+        lay.addWidget(self._sub_label(t("security.change_password")))
+        cur_row = SettingRow(t("security.current_password"))
+        self._cur_pw = QLineEdit()
+        self._cur_pw.setEchoMode(QLineEdit.EchoMode.Password)
+        self._cur_pw.setFixedWidth(200)
+        cur_row.add_control(self._cur_pw)
+        lay.addWidget(cur_row)
+
+        new_row = SettingRow(t("security.new_password"))
+        self._new_pw = QLineEdit()
+        self._new_pw.setEchoMode(QLineEdit.EchoMode.Password)
+        self._new_pw.setFixedWidth(200)
+        new_row.add_control(self._new_pw)
+        lay.addWidget(new_row)
+
+        rep_row = SettingRow(t("security.new_password_repeat"))
+        self._rep_pw = QLineEdit()
+        self._rep_pw.setEchoMode(QLineEdit.EchoMode.Password)
+        self._rep_pw.setFixedWidth(200)
+        rep_row.add_control(self._rep_pw)
+        lay.addWidget(rep_row)
+
+        change_btn_row = QHBoxLayout()
+        change_btn_row.addStretch()
+        self._change_btn = FlexButton(t("security.change_button"), min_width=120, max_width=220)
+        self._change_btn.setObjectName("AccentBtn")
+        self._change_btn.clicked.connect(self._on_change_password)
+        change_btn_row.addWidget(self._change_btn)
+        lay.addLayout(change_btn_row)
+
+        self._pw_status = QLabel("")
+        self._pw_status.setObjectName("SettingsSubLabel")
+        self._pw_status.setAlignment(Qt.AlignmentFlag.AlignRight)
+        lay.addWidget(self._pw_status)
+
+        lay.addSpacing(16)
+        lay.addWidget(hline())
+        lay.addSpacing(12)
+
+        # ── Auto-Lock ───────────────────────────────────────────
+        lock_row = SettingRow(t("security.autolock"), t("security.autolock_desc"))
+        self._autolock_combo = SettingsCombo()
+        self._autolock_combo.addItem(t("security.autolock_never"), 0)
+        self._autolock_combo.addItem(t("security.autolock_5min"), 5)
+        self._autolock_combo.addItem(t("security.autolock_15min"), 15)
+        self._autolock_combo.addItem(t("security.autolock_30min"), 30)
+        self._autolock_combo.addItem(t("security.autolock_60min"), 60)
+        current = self.settings.get("autolock_minutes", 15)
+        idx = self._AUTOLOCK_OPTIONS.index(current) if current in self._AUTOLOCK_OPTIONS else 2
+        self._autolock_combo.setCurrentIndex(idx)
+        self._autolock_combo.currentIndexChanged.connect(self._on_autolock_changed)
+        lock_row.add_control(self._autolock_combo)
+        lay.addWidget(lock_row)
+        lay.addWidget(hline())
+        lay.addSpacing(4)
+
+        minimize_row = SettingRow(t("security.lock_on_minimize"), t("security.lock_on_minimize_desc"))
+        self._minimize_toggle = ToggleBtn(self.settings.get("lock_on_minimize", False))
+        self._minimize_toggle.clicked.connect(self._on_minimize_toggle)
+        minimize_row.add_control(self._minimize_toggle)
+        lay.addWidget(minimize_row)
+        lay.addWidget(hline())
+        lay.addSpacing(4)
+
+        lock_now_row = SettingRow(t("security.lock_now"))
+        lock_now_btn = FlexButton("🔒  " + t("security.lock_now"), min_width=120, max_width=220)
+        lock_now_btn.setObjectName("AccentBtn")
+        lock_now_btn.clicked.connect(self.lock_requested)
+        lock_now_row.add_control(lock_now_btn)
+        lay.addWidget(lock_now_row)
+
+        lay.addSpacing(16)
+        lay.addWidget(hline())
+        lay.addSpacing(12)
+
+        # ── Notausgang ───────────────────────────────────────────
+        lay.addWidget(self._sub_label(t("security.danger_zone")))
+
+        once_row = SettingRow(t("security.delete_once"), t("security.delete_once_desc"))
+        self._once_toggle = ToggleBtn(self.settings.get("delete_once_on_exit", False))
+        self._once_toggle.clicked.connect(self._on_delete_once_toggle)
+        once_row.add_control(self._once_toggle)
+        lay.addWidget(once_row)
+        lay.addWidget(hline())
+        lay.addSpacing(4)
+
+        always_row = SettingRow(t("security.delete_always"), t("security.delete_always_desc"))
+        self._always_toggle = ToggleBtn(self.settings.get("delete_always_on_exit", False))
+        self._always_toggle.clicked.connect(self._on_delete_always_toggle)
+        always_row.add_control(self._always_toggle)
+        lay.addWidget(always_row)
+
+        lay.addStretch()
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(scrolled(inner))
+
+    def _sub_label(self, text: str) -> QLabel:
+        lbl = QLabel(text)
+        lbl.setFont(QFont("Segoe UI", 12, QFont.Weight.DemiBold))
+        return lbl
+
+    def _on_change_password(self):
+        from core import crypto_vault as _vault
+        current  = self._cur_pw.text()
+        new_pw   = self._new_pw.text()
+        repeat   = self._rep_pw.text()
+
+        if len(new_pw) < 8:
+            self._pw_status.setText(t("security.setup_too_short"))
+            return
+        if new_pw != repeat:
+            self._pw_status.setText(t("security.setup_mismatch"))
+            return
+
+        try:
+            _vault.change_password(current, new_pw)
+        except _vault.WrongPassword:
+            self._pw_status.setText(t("security.change_wrong_current"))
+            return
+        except _vault.VaultError as e:
+            self._pw_status.setText(str(e))
+            return
+
+        self._cur_pw.clear()
+        self._new_pw.clear()
+        self._rep_pw.clear()
+        self._pw_status.setText("✓  " + t("security.change_success"))
+
+    def _on_autolock_changed(self, idx: int):
+        minutes = self._autolock_combo.itemData(idx)
+        self.settings["autolock_minutes"] = minutes
+        self.autolock_changed.emit(minutes)
+
+    def _on_minimize_toggle(self):
+        checked = self._minimize_toggle.isChecked()
+        self.settings["lock_on_minimize"] = checked
+        self.lock_on_minimize_changed.emit(checked)
+
+    def _on_delete_once_toggle(self):
+        checked = self._once_toggle.isChecked()
+        if checked:
+            if not self._confirm_delete(t("security.delete_once")):
+                self._once_toggle.setChecked(False)
+                return
+        self.settings["delete_once_on_exit"] = checked
+        self.delete_once_changed.emit(checked)
+
+    def _on_delete_always_toggle(self):
+        checked = self._always_toggle.isChecked()
+        if checked:
+            if not self._confirm_delete(t("security.delete_always")):
+                self._always_toggle.setChecked(False)
+                return
+        self.settings["delete_always_on_exit"] = checked
+        self.delete_always_changed.emit(checked)
+
+    def _confirm_delete(self, label: str) -> bool:
+        msg = QMessageBox(self)
+        msg.setWindowTitle(t("security.delete_confirm_title"))
+        msg.setText(f"{label}\n\n{t('security.delete_confirm_text')}")
+        msg.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        msg.setDefaultButton(QMessageBox.StandardButton.No)
+        return msg.exec() == QMessageBox.StandardButton.Yes
+
+    def sync(self):
+        pass
+
+
 class PageAccounts(QWidget):
     accounts_changed = pyqtSignal()   # Feuert nach Login oder Löschen
     login_done       = pyqtSignal()   # Thread-sicheres Signal nach Login
@@ -561,8 +849,6 @@ class PageAccounts(QWidget):
 
     def _build_static(self):
         """Baut den statischen Rahmen einmalig auf."""
-        f = FACTIONS.get(self.settings.get("faction","caldari"), FACTIONS["caldari"])
-
         outer = QVBoxLayout(self)
         outer.setContentsMargins(32, 24, 32, 24)
         outer.setSpacing(0)
@@ -613,7 +899,7 @@ class PageAccounts(QWidget):
         btn_row = QHBoxLayout(btn_widget)
         btn_row.setContentsMargins(0, 0, 0, 0)
 
-        add_btn = QPushButton("＋  Account hinzufügen  (EVE SSO Login)")
+        add_btn = QPushButton(t("settings.add_account"))
         self._add_btn_ref = add_btn
         add_btn.setObjectName("AccentBtn")
         add_btn.clicked.connect(self._on_add_account)
@@ -628,24 +914,27 @@ class PageAccounts(QWidget):
         self._build()
 
     def _load_tokens(self):
-        """Lädt Token-Dateien und stellt sicher dass alle Felder Strings sind."""
+        """Lädt Token-Dateien und stellt sicher dass alle Felder Strings sind.
+        Unterscheidet zwischen 'gesperrt' und 'wirklich kein Account' —
+        beides führt zu einer leeren Liste, aber der Hinweistext unten
+        soll dem Nutzer den tatsächlichen Grund nennen."""
+        from core import crypto_vault as _vault_mod
+        self._vault_locked = not _vault_mod.is_unlocked()
         try:
             from core import esi as esi_mod
             raw = esi_mod.load_tokens()
         except Exception:
             raw = []
         self._tokens = []
-        for t in raw:
+        for tok in raw:
             self._tokens.append({
-                "id":        str(t.get("id", "")),
-                "name":      str(t.get("name", "Unbekannt")),
-                "corp_name": str(t.get("corp_name") or t.get("corp_id") or "Unbekannt"),
+                "id":        str(tok.get("id", "")),
+                "name":      str(tok.get("name", "Unbekannt")),
+                "corp_name": str(tok.get("corp_name") or tok.get("corp_id") or "Unbekannt"),
             })
 
     def _build(self):
         """Nur die Char-Liste neu aufbauen — Rahmen bleibt."""
-        f = FACTIONS.get(self.settings.get("faction","caldari"), FACTIONS["caldari"])
-
         # Rendering einfrieren während Umbau
         self._char_container.setUpdatesEnabled(False)
 
@@ -658,8 +947,12 @@ class PageAccounts(QWidget):
                 w.setParent(None)
 
         if not self._tokens:
-            empty = QLabel("Noch kein Charakter eingeloggt.")
+            if getattr(self, "_vault_locked", False):
+                empty = QLabel("🔒  " + t("security.unlock_hint"))
+            else:
+                empty = QLabel("Noch kein Charakter eingeloggt.")
             empty.setStyleSheet("color: #888; font-size: 11px; padding: 8px 0;")
+            empty.setWordWrap(True)
             self._char_lay.addWidget(empty)
             self._char_lay.addWidget(hline())
         else:
@@ -724,7 +1017,7 @@ class PageAccounts(QWidget):
     def _release_login_btn(self):
         """Button freigeben."""
         self._add_btn_ref.setEnabled(True)
-        self._add_btn_ref.setText("＋  Account hinzufügen  (EVE SSO Login)")
+        self._add_btn_ref.setText(t("settings.add_account"))
 
     def _on_login_done(self):
         """Wird im Main Thread aufgerufen wenn Login erfolgreich — thread-sicher."""
@@ -941,15 +1234,13 @@ class PageUpdates(QWidget):
         self._new_ver_lbl.setStyleSheet("background: transparent;")
         row_new.add_control(self._new_ver_lbl)
 
-        self._check_btn = QPushButton(t("settings.check_update"))
+        self._check_btn = FlexButton(t("settings.check_update"), min_width=100, max_width=180)
         self._check_btn.setObjectName("AccentBtn")
-        self._check_btn.setFixedWidth(130)
         self._check_btn.clicked.connect(self._do_check)
         row_new.add_control(self._check_btn)
 
-        self._install_now_btn = QPushButton("Jetzt installieren")
+        self._install_now_btn = FlexButton(t("settings.install_now"), min_width=110, max_width=200)
         self._install_now_btn.setObjectName("AccentBtn")
-        self._install_now_btn.setFixedWidth(150)
         self._install_now_btn.setVisible(False)
         self._install_now_btn.clicked.connect(self._do_install_now)
         row_new.add_control(self._install_now_btn)
@@ -977,57 +1268,24 @@ class PageUpdates(QWidget):
         lay.addSpacing(8)
 
         row_auto = SettingRow(t("settings.check_on_start"),
-                              "App sucht beim Start automatisch nach Updates")
+                              "App sucht beim Start automatisch nach Updates. "
+                              "Gefundene Updates werden über ein Popup angeboten — "
+                              "nie automatisch ohne Nachfrage installiert.")
         self._auto_btn = ToggleBtn(self.settings.get("update_on_start", True))
         self._auto_btn.clicked.connect(
             lambda: self._save("update_on_start", self._auto_btn.isChecked()))
         row_auto.add_control(self._auto_btn)
         lay.addWidget(row_auto)
-        lay.addWidget(hline())
-        lay.addSpacing(4)
-
-        row_install = SettingRow(t("settings.auto_install"),
-                                 "Gefundene Updates direkt installieren. Nur aktiv wenn 'Beim Start prüfen' an.")
-        self._install_btn = ToggleBtn(self.settings.get("update_auto_install", False))
-        self._install_btn.setEnabled(self.settings.get("update_on_start", True))
-        self._install_btn.clicked.connect(
-            lambda: self._save("update_auto_install", self._install_btn.isChecked()))
-        row_install.add_control(self._install_btn)
-        lay.addWidget(row_install)
-        lay.addWidget(hline())
-        lay.addSpacing(12)
-
-        # ── Backup / Wiederherstellung ────────────────────────
-        lbl_b = QLabel("Backup")
-        lbl_b.setFont(QFont("Segoe UI", 13, QFont.Weight.DemiBold))
-        lbl_b.setStyleSheet("background: transparent;")
-        lay.addWidget(lbl_b)
-        lay.addWidget(hline())
-        lay.addSpacing(8)
-
-        backup_ver = updater.get_backup_version()
-        has_backup = updater.has_backup()
-        backup_sub = f"Backup vorhanden: v{backup_ver}" if has_backup else "Kein Backup vorhanden"
-        row_restore = SettingRow(t("settings.restore_title"), backup_sub)
-
-        self._restore_btn = QPushButton(t("settings.restore"))
-        self._restore_btn.setObjectName("AccentBtn")
-        self._restore_btn.setFixedWidth(160)
-        self._restore_btn.setEnabled(has_backup)
-        self._restore_btn.clicked.connect(self._do_restore)
-        row_restore.add_control(self._restore_btn)
-        lay.addWidget(row_restore)
         lay.addStretch()
 
     def _save(self, key: str, val):
         self.settings[key] = val
         from core import settings as cfg
         cfg.save(self.settings)
-        self._install_btn.setEnabled(self.settings.get("update_on_start", True))
 
     def _do_check(self):
         from core import updater
-        self._check_btn.setText("Prüfe...")
+        self._check_btn.setText(t("settings.checking"))
         self._check_btn.setEnabled(False)
         self._install_now_btn.setVisible(False)
 
@@ -1056,6 +1314,13 @@ class PageUpdates(QWidget):
             self._install_now_btn.setVisible(False)
 
     def _do_install_now(self):
+        """
+        Manueller Installations-Weg über die Einstellungsseite — eigenständig
+        vom Start-Popup, für den Fall, dass der Nutzer aktiv in den
+        Einstellungen nach Updates sucht. Nutzt dasselbe download_and_install()
+        wie das Popup, mit denselben Sicherheitsprüfungen (Signatur,
+        Anti-Downgrade).
+        """
         if not self._remote_ver:
             return
         from PyQt6.QtWidgets import QMessageBox
@@ -1074,14 +1339,13 @@ class PageUpdates(QWidget):
             return
 
         self._install_now_btn.setEnabled(False)
-        self._install_now_btn.setText("Installiere...")
+        self._install_now_btn.setText(t("settings.installing_progress"))
         self._check_btn.setEnabled(False)
 
         from core import updater
         updater.create_backup()
 
         def _progress(pct):
-            from PyQt6.QtCore import QTimer
             QTimer.singleShot(0, lambda: self._install_now_btn.setText(f"{pct}%"))
 
         # download_and_install startet die App neu bei Erfolg (kehrt nicht zurück)
@@ -1089,38 +1353,16 @@ class PageUpdates(QWidget):
 
         if not ok:
             self._install_now_btn.setEnabled(True)
-            self._install_now_btn.setText("Jetzt installieren")
+            self._install_now_btn.setText(t("settings.install_now"))
             self._check_btn.setEnabled(True)
             err = QMessageBox(self)
             err.setWindowTitle("Update fehlgeschlagen")
             err.setText(msg)
             err.exec()
 
-    def _do_restore(self):
-        from PyQt6.QtWidgets import QMessageBox
-        msg = QMessageBox(self)
-        msg.setWindowTitle("Version wiederherstellen")
-        backup_ver = updater.get_backup_version()
-        msg.setText(f"Auf Version {backup_ver} zurücksetzen?")
-        msg.setInformativeText(
-            "Die aktuelle Version wird ersetzt. Die App muss danach neu gestartet werden.")
-        msg.setStandardButtons(
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        msg.setDefaultButton(QMessageBox.StandardButton.No)
-        if msg.exec() == QMessageBox.StandardButton.Yes:
-            ok, msg_text = updater.restore_backup()
-            from PyQt6.QtWidgets import QMessageBox as MB
-            info = MB(self)
-            info.setWindowTitle("Wiederherstellung")
-            info.setText(msg_text)
-            info.exec()
-
     def sync(self):
         self._auto_btn.setChecked(self.settings.get("update_on_start", True))
         self._auto_btn.setText("ON" if self._auto_btn.isChecked() else "OFF")
-        self._install_btn.setChecked(self.settings.get("update_auto_install", False))
-        self._install_btn.setText("ON" if self._install_btn.isChecked() else "OFF")
-        self._install_btn.setEnabled(self.settings.get("update_on_start", True))
 
 
 # ── Haupt-Einstellungsseite ───────────────────────────────────────────────────
@@ -1136,12 +1378,18 @@ class SettingsPage(QWidget):
     window_size_changed= pyqtSignal(int, int)
     close_requested    = pyqtSignal()
     accounts_changed   = pyqtSignal()
+    lock_requested        = pyqtSignal()
+    autolock_changed      = pyqtSignal(int)
+    lock_on_minimize_changed = pyqtSignal(bool)
+    delete_once_changed   = pyqtSignal(bool)
+    delete_always_changed = pyqtSignal(bool)
 
     CATEGORIES = [
         ("🌐", "Allgemein"),
         ("🔄", "Updates"),
         ("🎨", "Darstellung"),
         ("👤", "Accounts"),
+        ("🔐", t("security.tab_title")),
         ("🧩", t("settings.func_info")),
         ("🛠", "Entwickler"),
         ("↺",  t("settings.reset_btn")),
@@ -1208,6 +1456,7 @@ class SettingsPage(QWidget):
             "Updates":        PageUpdates(self.settings),
             "Darstellung":    PageDarstellung(self.settings),
             "Accounts":       PageAccounts(self.settings),
+            t("security.tab_title"): PageSicherheit(self.settings),
             t("settings.func_info"): PageFunktionsInfo(self.settings),
             "Entwickler":     PageEntwickler(self.settings),
             t("settings.reset_btn"):   PageZuruecksetzen(self.settings),
@@ -1220,6 +1469,11 @@ class SettingsPage(QWidget):
         self._pages["Darstellung"].edit_mode_changed.connect(self.edit_mode_changed)
         self._pages["Entwickler"].dev_mode_changed.connect(self.dev_mode_changed)
         self._pages["Entwickler"].test_mode_changed.connect(self.test_mode_changed)
+        self._pages[t("security.tab_title")].lock_requested.connect(self.lock_requested)
+        self._pages[t("security.tab_title")].autolock_changed.connect(self.autolock_changed)
+        self._pages[t("security.tab_title")].lock_on_minimize_changed.connect(self.lock_on_minimize_changed)
+        self._pages[t("security.tab_title")].delete_once_changed.connect(self.delete_once_changed)
+        self._pages[t("security.tab_title")].delete_always_changed.connect(self.delete_always_changed)
         # Accounts-Seite: Signal nicht mehr nötig — direkt über _popup_ref
         self._pages[t("settings.reset_btn")].reset_requested.connect(self._on_reset)
 

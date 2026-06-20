@@ -31,10 +31,29 @@ client_secret.txt
 backup/
 
 # ── Sicherheitsdateien (NIEMALS pushen!) ──────────────────────
+# Beide Schreibweisen (im erwarteten Ordner UND als blanker Dateiname)
+# eingetragen — falls der Root Key aus irgendeinem Grund mal NICHT in
+# ROOT_KEY_SICHERN/ liegt (z.B. versehentlich ins Projekt-Root kopiert),
+# greift trotzdem ein Ignore-Treffer. Doppelt abgesichert ist hier
+# bewusst keine Redundanz, sondern Absicht: "save ist save".
 dev_privkey.pem
 dev_mode.flag
+ROOT_KEY_SICHERN/
+root_privkey.pem
+Eve toolbox securety roadmap.md
+
+# ── Build-Hilfsskript-Reste ────────────────────────────────────
+# Temporäre Python-Einzeiler, die security_generator.bat/release.bat
+# erzeugen und normalerweise selbst wieder löschen — falls ein Lauf
+# abbricht, bevor das passiert, bleiben sie sonst liegen.
+_*.tmp
+_*_tmp.py
+_tok_tmp.py
 
 # ── Nutzerdaten (lokal, nicht versionieren) ───────────────────
+# data/ = neuer Speicherort für Vault (Salt + verschlüsselte Account-Daten),
+# liegt direkt im portablen Programmordner statt im Windows-Profil.
+data/
 eve_toolbox/tokens/
 tokens/
 *.log
@@ -44,8 +63,22 @@ settings.json
 
 # ── Release Dateien (werden als GitHub Release Anhang hochgeladen) ──
 eve_toolbox.zip
+eve_toolbox.zip.sig
 update_download.zip
 previous_version.zip
+
+# ── Fertig gebaute Laufzeitumgebung (NICHT ins Repo) ──────────
+# EVE_Toolbox.exe + _internal/ im Projekt-Root sind das, was
+# release.bat am Ende dorthin kopiert ("Kopiere Release-Dateien ins
+# Hauptverzeichnis") — reine Binärdateien (DLLs, .pyd, Qt-Bibliotheken),
+# bei jedem Release komplett neu von PyInstaller erzeugt, nie sinnvoll
+# als Diff versionierbar. Die fertige Version geht ausschließlich über
+# die GitHub-Release-ZIP an die Nutzer, NICHT über das Git-Repository
+# selbst. _internal/ bleibt davon unberührt INNERHALB der ZIP (die ZIP
+# wird komplett separat über release.bat gebaut, nicht aus dem
+# Git-Stand) — dieser Eintrag betrifft nur, was committet wird.
+EVE_Toolbox.exe
+_internal/
 
 # ── Build dist (nur Zwischendateien, nicht das fertige Release) ──
 build/dist/

@@ -24,7 +24,14 @@ DEFAULTS = {
     "edit_locked":       True,
     "first_run":         True,
     "update_on_start":   True,
-    "update_auto_install": True,
+    # update_auto_install entfernt (Block 3) — die Entscheidung
+    # "jetzt installieren" oder "beim nächsten Neustart" wird über das
+    # UpdatePopup jedes Mal neu getroffen, nicht einmalig vorab festgelegt.
+    # ── Sicherheit (Vault / Master-Passwort) ──────────────────
+    "autolock_minutes":      15,    # 0 = "Niemals (erst beim Beenden)"
+    "lock_on_minimize":      False, # zusätzlich: beim Minimieren sofort sperren
+    "delete_once_on_exit":   False, # einmaliger Lösch-Trigger
+    "delete_always_on_exit": False,
 }
 
 

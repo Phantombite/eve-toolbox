@@ -102,7 +102,7 @@ class NotifCard(QWidget):
         # Header
         h_row = QHBoxLayout()
         icon  = nf.TYPE_ICONS.get(notif.get("type","system"), "ℹ")
-        tname = nf.TYPE_LABELS.get(notif.get("type","system"), "Info")
+        tname = nf.get_type_labels().get(notif.get("type","system"), "Info")
 
         type_lbl = QLabel(f"{icon}  {tname}")
         type_lbl.setFont(QFont("Segoe UI", 10, QFont.Weight.DemiBold))
