@@ -80,7 +80,7 @@ APP_DIR         = Path(__file__).resolve().parent.parent.parent
 EVE_TOOLBOX_DIR = APP_DIR / "eve_toolbox"
 INTERNAL_DIR    = APP_DIR / "_internal"
 EXE_FILE        = APP_DIR / "EVE_Toolbox.exe"
-BACKUP_DIR      = Path.home() / ".eve_toolbox" / "backup"
+BACKUP_DIR      = APP_DIR / "appdata" / "backup"
 BACKUP_ZIP      = BACKUP_DIR / "previous_version.zip"
 
 

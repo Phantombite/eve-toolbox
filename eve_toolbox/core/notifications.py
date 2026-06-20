@@ -6,7 +6,9 @@ from datetime import datetime, date
 from pathlib import Path
 from core.i18n import t
 
-NOTIF_PATH = Path.home() / ".eve_toolbox" / "notifications.json"
+# __file__ = APP_DIR/eve_toolbox/core/notifications.py
+APP_DIR = Path(__file__).resolve().parent.parent.parent
+NOTIF_PATH = APP_DIR / "appdata" / "notifications.json"
 
 # Nachrichtentypen
 TYPE_UPDATE  = "update"

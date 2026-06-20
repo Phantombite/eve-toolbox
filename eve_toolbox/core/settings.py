@@ -8,7 +8,9 @@ import json
 import os
 from pathlib import Path
 
-SETTINGS_PATH = Path.home() / ".eve_toolbox" / "settings.json"
+# __file__ = APP_DIR/eve_toolbox/core/settings.py
+APP_DIR = Path(__file__).resolve().parent.parent.parent
+SETTINGS_PATH = APP_DIR / "appdata" / "settings.json"
 
 DEFAULTS = {
     "faction":           "caldari",

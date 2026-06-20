@@ -1,7 +1,9 @@
 """
 EVE Toolbox — Zentrales Logging System.
 
-- Schreibt immer in ~/.eve_toolbox/logs/eve_toolbox.log
+- Schreibt immer in <Programmordner>/appdata/logs/eve_toolbox.log
+  (portabel — alle EVE Toolbox Dateien bleiben in einem Ordner, kein
+  Verstreuen über das Windows-Benutzerprofil)
 - Konsolen-Output nur wenn EVE_TOOLBOX_DEBUG=1 gesetzt ist
 - Automatische Rotation: max 3 Dateien à 2MB
 - Vorbereitet für Bug-Report Funktion (letzten Log einsenden)
@@ -13,7 +15,9 @@ import sys
 from pathlib import Path
 
 # ── Log-Verzeichnis ───────────────────────────────────────────
-LOG_DIR  = Path.home() / ".eve_toolbox" / "logs"
+# __file__ = APP_DIR/eve_toolbox/core/logger.py
+APP_DIR  = Path(__file__).resolve().parent.parent.parent
+LOG_DIR  = APP_DIR / "appdata" / "logs"
 LOG_FILE = LOG_DIR / "eve_toolbox.log"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 

@@ -51,14 +51,17 @@ _*_tmp.py
 _tok_tmp.py
 
 # ── Nutzerdaten (lokal, nicht versionieren) ───────────────────
-# data/ = neuer Speicherort für Vault (Salt + verschlüsselte Account-Daten),
-# liegt direkt im portablen Programmordner statt im Windows-Profil.
+# data/ = Vault (Salt + verschlüsselte Account-Daten)
+# appdata/ = Settings, Logs, Notifications, Backup — alles, was vorher
+# im Windows-Benutzerprofil (~/.eve_toolbox/) lag, liegt jetzt ebenfalls
+# direkt im portablen Programmordner, damit alle EVE Toolbox Dateien an
+# einem Ort bleiben (kein erneutes Einrichten nach dem Verschieben).
 data/
-eve_toolbox/tokens/
-tokens/
+appdata/
+# *.log, settings.json als zusätzliches Sicherheitsnetz — appdata/
+# deckt das normalerweise schon ab, falls aber doch mal eine Datei
+# woanders landet, greift hier trotzdem ein Ignore-Treffer.
 *.log
-eve_toolbox/logs/
-logs/
 settings.json
 
 # ── Release Dateien (werden als GitHub Release Anhang hochgeladen) ──
