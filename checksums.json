@@ -38,6 +38,6 @@
   "eve_toolbox/ui/topbar.py": "9de3e3a516d0c6d8a5e49d23cf50740952041209dd7e3d9585dfd7902f0edacd",
   "eve_toolbox/ui/unlock_popup.py": "1f0722da996854ffceb0f8792aa97a3ac7eb63a14d4c03e9cc9b6fb4f6909d7b",
   "eve_toolbox/ui/update_popup.py": "3129209fca51fca3d35e90a8fd64969fc72008dd1e292158213125f53b7b89ca",
-  "eve_toolbox/ui/welcome_screen.py": "cb2433b6b104bbb5e8bc8d56f1fcc1f411cf446a843281c4b646ac77105aaa73",
-  "version.json": "ed852ccc4b42d9bfb7cb69f2de72367feeb9902d7972a7461274f3c605d35dd0"
+  "eve_toolbox/ui/welcome_screen.py": "3b2a013117f8191a76fb1cf8305efc017943e6b3ed404e0f914f485d3afedf7d",
+  "version.json": "6ea4d9da5548ed7edba446ab553e8ab797551332e8b930fcb386d1a04e3f5581"
 }

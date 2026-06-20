@@ -106,7 +106,7 @@ class WelcomeScreen(QDialog):
     def __init__(self, settings: dict, parent=None):
         super().__init__(parent)
         self.settings     = dict(settings)
-        self._sel_faction = "caldari"
+        self._sel_faction = "amarr"
         self._sel_theme   = "dark"
         self._sel_lang    = "en"
 
@@ -215,7 +215,7 @@ class WelcomeScreen(QDialog):
             card.clicked.connect(self._set_faction)
             faction_row.addWidget(card)
             self._faction_cards[key] = card
-        self._faction_cards["caldari"].set_selected(True)
+        self._faction_cards["amarr"].set_selected(True)
         cl.addLayout(faction_row)
 
         main.addWidget(content)
