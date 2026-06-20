@@ -11,11 +11,11 @@
   "eve_toolbox/core/esi_config.py": "4a221b5fadf6381297935ce9656fb96fe133c14e62eeb1426022a0436e8c6045",
   "eve_toolbox/core/i18n.py": "0f177fe9246cfeaf6931910778ad4b127deb5c2416c95a39f6fc135ec7d4f951",
   "eve_toolbox/core/integrity.py": "603e4b802d6bbbcb22b5a29797d49995b3a327806c312a40051b7d64f115e773",
-  "eve_toolbox/core/logger.py": "ecef4c208edf02f70d874bacdaa9d83378edbe1585535a364659c118563bd4d3",
-  "eve_toolbox/core/notifications.py": "cfa309d5b8b7ebbde9f5787f93c51b519b313508d2154f5d0db494b3c65d88ec",
+  "eve_toolbox/core/logger.py": "785c06e116bec8fe39018ad648892b2af70b009ec9f860c072f07e8be76a3508",
+  "eve_toolbox/core/notifications.py": "4bf2ff529725a791904678a94eb42ddf51ab2b127e937c275ec3c049380c492f",
   "eve_toolbox/core/release_crypto.py": "633b08787047b4138e6d31ba9989d97ff621d5a241addcbdef05ce00a1151f10",
-  "eve_toolbox/core/settings.py": "36126883c510e21dc982defb62946edac7d4d98989e16a255b32d942025b6088",
-  "eve_toolbox/core/updater.py": "338ab39e9ada19b14903aaaee3dd13b280fee173101d9c0e151f2ce78d345de9",
+  "eve_toolbox/core/settings.py": "8c5968522189fd324dba3d208753ec1538c58cb035840a459a476b6c460264bc",
+  "eve_toolbox/core/updater.py": "f5fcdde0b82e03f7d5b17827f3ee3b8d4065630f6a90e175a5dc33fdea9180d3",
   "eve_toolbox/i18n/de.json": "ef7a5bd2f1bbea303fccda03b0b677167218db0348a766a21db56d4ff10a30ee",
   "eve_toolbox/i18n/en.json": "e26e21783fe58227f1b2bff2a621e4a37abdb89cc6ef0c87cda349744315bb6b",
   "eve_toolbox/main.py": "520f8bbbac2f39d79e4a68e1e3edcc94ada0ff6b2bfd87098997d2a8d50921df",
@@ -39,5 +39,5 @@
   "eve_toolbox/ui/unlock_popup.py": "1f0722da996854ffceb0f8792aa97a3ac7eb63a14d4c03e9cc9b6fb4f6909d7b",
   "eve_toolbox/ui/update_popup.py": "3129209fca51fca3d35e90a8fd64969fc72008dd1e292158213125f53b7b89ca",
   "eve_toolbox/ui/welcome_screen.py": "cb2433b6b104bbb5e8bc8d56f1fcc1f411cf446a843281c4b646ac77105aaa73",
-  "version.json": "cd81ef8e2511fbc8c3702c54c4a4daf170527631595776b1c87904c0eeaa4412"
+  "version.json": "ed852ccc4b42d9bfb7cb69f2de72367feeb9902d7972a7461274f3c605d35dd0"
 }
