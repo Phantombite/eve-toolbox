@@ -48,11 +48,22 @@ class UpdatePopup(QDialog):
         self._build(current_version, new_version, notes)
 
     def _center(self):
-        from PyQt6.QtWidgets import QApplication
-        screen = QApplication.primaryScreen().geometry()
-        self.move(
-            (screen.width()  - self.width())  // 2,
-            (screen.height() - self.height()) // 2)
+        # Läuft aktuell beim Start IMMER mit parent=None (Hauptfenster ist
+        # zu diesem Zeitpunkt noch nicht sichtbar) — Bildschirm-Fallback
+        # ist hier der Normalfall, nicht nur Sicherheitsnetz. Trotzdem
+        # robust für künftige Aufrufe mit sichtbarem Parent gehalten.
+        parent = self.parentWidget()
+        if parent is not None:
+            geo = parent.geometry()
+            self.move(
+                geo.x() + (geo.width()  - self.width())  // 2,
+                geo.y() + (geo.height() - self.height()) // 2)
+        else:
+            from PyQt6.QtWidgets import QApplication
+            screen = QApplication.primaryScreen().geometry()
+            self.move(
+                (screen.width()  - self.width())  // 2,
+                (screen.height() - self.height()) // 2)
 
     def _build(self, current_version: str, new_version: str, notes: str):
         lay = QVBoxLayout(self)

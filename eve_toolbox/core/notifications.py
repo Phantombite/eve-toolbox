@@ -69,8 +69,10 @@ def load() -> list:
 def save(notifications: list) -> None:
     """Speichert Nachrichten."""
     NOTIF_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(NOTIF_PATH, "w", encoding="utf-8") as f:
-        json.dump(notifications, f, indent=2, ensure_ascii=False)
+    # Binärmodus statt Textmodus, aus Konsistenzgründen (kein Sicherheits-
+    # risiko hier, da notifications.json nie signiert/gehasht wird).
+    text = json.dumps(notifications, indent=2, ensure_ascii=False)
+    NOTIF_PATH.write_bytes(text.encode("utf-8"))
 
 
 def get_unread(notifications: list) -> list:

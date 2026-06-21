@@ -427,9 +427,15 @@ def generate_checksums(output_path: Path = None) -> dict:
     if version_file.exists():
         checksums[_get_relative_key(version_file)] = _hash_file(version_file)
 
-    output_path.write_text(
-        json.dumps(checksums, indent=2, ensure_ascii=False),
-        encoding="utf-8"
-    )
+    # WICHTIG: write_bytes() statt write_text() — write_text() öffnet die
+    # Datei im Text-Modus, der auf Windows automatisch \n zu \r\n macht.
+    # Das führte zu genau dem Bug, der live aufgetreten ist: Die Datei
+    # wurde lokal mit \r\n signiert, aber Git wandelt das beim Commit
+    # durch core.autocrlf (auf Windows standardmäßig aktiv) zurück zu
+    # \n um — die auf GitHub liegenden Bytes passten dann nicht mehr zur
+    # lokal erzeugten Signatur. Mit expliziten \n-Bytes von Anfang an
+    # gibt es für Git nichts mehr zu konvertieren.
+    json_text = json.dumps(checksums, indent=2, ensure_ascii=False)
+    output_path.write_bytes(json_text.encode("utf-8"))
     print(f"checksums.json erstellt: {len(checksums)} Dateien")
     return checksums

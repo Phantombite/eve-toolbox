@@ -13,7 +13,7 @@ APP_DIR = Path(__file__).resolve().parent.parent.parent
 SETTINGS_PATH = APP_DIR / "appdata" / "settings.json"
 
 DEFAULTS = {
-    "faction":           "caldari",
+    "faction":           "amarr",
     "home_layout":       "donut_icon",
     "theme":             "dark",
     "language":     "en",
@@ -59,5 +59,10 @@ def load() -> dict:
 
 def save(settings: dict) -> None:
     SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
-        json.dump(settings, f, indent=2, ensure_ascii=False)
+    # Binärmodus statt Textmodus — settings.json wird nie signiert/gehasht
+    # (rein lokale Konfiguration, verlässt den Rechner nie), daher kein
+    # Sicherheitsrisiko hier. Trotzdem aus Konsistenz mit den anderen
+    # JSON-Schreibvorgängen im Projekt korrigiert (siehe core.integrity.
+    # generate_checksums() für den eigentlichen Hintergrund des Musters).
+    text = json.dumps(settings, indent=2, ensure_ascii=False)
+    SETTINGS_PATH.write_bytes(text.encode("utf-8"))

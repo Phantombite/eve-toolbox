@@ -185,7 +185,8 @@ goto :ask_version_ok
 >> _ver_tmp.py echo d = json.loads(Path('version.json').read_text(encoding='utf-8'))
 >> _ver_tmp.py echo d['version'] = '!NEW_VERSION!'
 >> _ver_tmp.py echo d['download_zip'] = f"https://github.com/Phantombite/eve-toolbox/releases/download/v!NEW_VERSION!/eve_toolbox.zip"
->> _ver_tmp.py echo Path('version.json').write_text(json.dumps(d, indent=2, ensure_ascii=False), encoding='utf-8')
+>> _ver_tmp.py echo text = json.dumps(d, indent=2, ensure_ascii=False)
+>> _ver_tmp.py echo Path('version.json').write_bytes(text.encode('utf-8'))
 python _ver_tmp.py
 del _ver_tmp.py >nul 2>&1
 if errorlevel 1 (
@@ -329,7 +330,8 @@ echo  [...] Setze stable_version.json auf v!NEW_VERSION!...
 > _stable_tmp.py echo import json
 >> _stable_tmp.py echo from pathlib import Path
 >> _stable_tmp.py echo data = {"version": "!NEW_VERSION!", "mandatory": False}
->> _stable_tmp.py echo Path(r'!CSDIR!\stable_version.json').write_text(json.dumps(data, indent=2), encoding='utf-8')
+>> _stable_tmp.py echo text = json.dumps(data, indent=2)
+>> _stable_tmp.py echo Path(r'!CSDIR!\stable_version.json').write_bytes(text.encode('utf-8'))
 >> _stable_tmp.py echo print('stable_version.json gesetzt')
 python _stable_tmp.py
 del _stable_tmp.py >nul 2>&1

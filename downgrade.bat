@@ -93,7 +93,8 @@ echo  [...] Setze stable_version.json...
 > _dg_tmp.py echo import json
 >> _dg_tmp.py echo from pathlib import Path
 >> _dg_tmp.py echo data = {"version": "!ROLLBACK_VERSION!", "mandatory": !MANDATORY_PY!}
->> _dg_tmp.py echo Path('stable_version.json').write_text(json.dumps(data, indent=2), encoding='utf-8')
+>> _dg_tmp.py echo text = json.dumps(data, indent=2)
+>> _dg_tmp.py echo Path('stable_version.json').write_bytes(text.encode('utf-8'))
 >> _dg_tmp.py echo print('stable_version.json gesetzt')
 python _dg_tmp.py
 del _dg_tmp.py >nul 2>&1

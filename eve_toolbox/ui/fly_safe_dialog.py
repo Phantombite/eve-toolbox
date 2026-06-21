@@ -25,11 +25,23 @@ class FlySafeDialog(QDialog):
         QTimer.singleShot(1800, self.accept)
 
     def _center(self):
-        from PyQt6.QtWidgets import QApplication
-        screen = QApplication.primaryScreen().geometry()
-        self.move(
-            (screen.width()  - self.width())  // 2,
-            (screen.height() - self.height()) // 2)
+        # Bevorzugt relativ zum Hauptfenster zentrieren (parent), nicht
+        # zum gesamten Bildschirm — sonst erscheint der Dialog z.B. bei
+        # einem Fenster, das nicht mittig auf dem Monitor liegt, an
+        # einer für den Nutzer überraschenden Stelle. Fallback auf den
+        # Bildschirm nur, falls kein Parent übergeben wurde.
+        parent = self.parentWidget()
+        if parent is not None:
+            geo = parent.geometry()
+            self.move(
+                geo.x() + (geo.width()  - self.width())  // 2,
+                geo.y() + (geo.height() - self.height()) // 2)
+        else:
+            from PyQt6.QtWidgets import QApplication
+            screen = QApplication.primaryScreen().geometry()
+            self.move(
+                (screen.width()  - self.width())  // 2,
+                (screen.height() - self.height()) // 2)
 
     def _build(self, deleted: bool):
         lay = QVBoxLayout(self)

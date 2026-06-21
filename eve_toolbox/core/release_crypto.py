@@ -175,7 +175,16 @@ def load_release_cert_bytes(cert_bytes: bytes) -> ed25519.Ed25519PublicKey | Non
 
     payload = _build_cert_payload(release_pubkey_pem)
     if not _verify_with_root_keys(payload, root_signature):
-        _log.error("release_cert.json: Root-Signatur UNGÜLTIG — Release Key wird NICHT vertraut")
+        _log.error(
+            "release_cert.json: Root-Signatur UNGÜLTIG — Release Key wird "
+            "NICHT vertraut. Hinweis: payload ist der .strip()te PEM-Text "
+            "des Release Keys, kein dateibasiertes CRLF-Problem hier "
+            "möglich (anders als bei checksums.json/stable_version.json). "
+            "Wahrscheinlichste Ursachen: Root Key im Code "
+            "(TRUSTED_PUBLIC_KEYS_PEM) stimmt nicht mit dem Root Key "
+            "überein, der dieses Zertifikat signiert hat, oder das "
+            "Zertifikat wurde manipuliert."
+        )
         return None
 
     try:
@@ -223,18 +232,52 @@ def verify_release_signature(checksums_bytes: bytes, signature_b64: str,
     try:
         signature = base64.b64decode(signature_b64)
     except Exception as e:
-        _log.error(f"Signatur konnte nicht dekodiert werden: {e}")
+        _log.error(f"Signatur konnte nicht dekodiert werden (kein gültiges Base64): {e}")
         return False
 
     try:
         release_key.verify(signature, checksums_bytes)
-        _log.info("Release-Signatur (checksums.json) gültig — Release Key durch Root autorisiert")
+        _log.info(
+            f"Release-Signatur gültig — Release Key durch Root autorisiert "
+            f"({len(checksums_bytes)} Bytes geprüft)"
+        )
         return True
     except InvalidSignature:
-        _log.warning("Release-Signatur (checksums.json) UNGÜLTIG gegen autorisierten Release Key")
+        # Diagnose-Hinweise, OHNE sensible Inhalte (Schlüssel, Signatur,
+        # Datei-Inhalt) ins Log zu schreiben — nur Längen/Häufigkeiten,
+        # die beim Eingrenzen helfen, aber selbst nichts verraten.
+        #
+        # WICHTIG zur Interpretation: Die hier geprüften checksums_bytes
+        # sind typischerweise die per Download/lokal aktuell VORLIEGENDE
+        # Version — beim klassischen CRLF/autocrlf-Bug enthält GENAU
+        # DIESE Version often schon 0 CRLF (weil Git sie beim Commit
+        # bereits zu LF normalisiert hat). "0 CRLF gefunden" ist also
+        # KEINE Entwarnung für dieses Bug-Muster, sondern oft genau das
+        # erwartete Symptom — die SIGNATUR wurde über eine andere
+        # (CRLF-haltige) Version erzeugt, die hier nicht mehr vorliegt.
+        crlf_count = checksums_bytes.count(b"\r\n")
+        _log.warning(
+            f"Release-Signatur UNGÜLTIG gegen autorisierten Release Key "
+            f"({len(checksums_bytes)} Bytes geprüft, davon {crlf_count} "
+            f"CRLF-Zeilenenden in DIESER Version)."
+        )
+        _log.warning(
+            "Mögliche Ursachen: (1) Inhalt wurde nach dem Signieren "
+            "tatsächlich verändert (erwartetes Verhalten bei echter "
+            "Manipulation). (2) CRLF/autocrlf-Mismatch: die Datei wurde "
+            "vor dem Signieren mit Windows-Textmodus (write_text() statt "
+            "write_bytes()) geschrieben, danach hat Git core.autocrlf "
+            "beim Commit zu LF normalisiert — die signierten Bytes "
+            "unterscheiden sich dann von den verteilten Bytes, OBWOHL der "
+            "lesbare Inhalt identisch aussieht und diese Version hier "
+            "0 CRLF zeigen kann. Prüfen: wurde die Datei mit "
+            "core.integrity.generate_checksums() bzw. write_bytes() "
+            "erzeugt, oder gab es einen Zwischenschritt mit Text-"
+            "Schreibmodus vor dem Signieren?"
+        )
         return False
     except Exception as e:
-        _log.warning(f"Fehler bei Release-Signaturprüfung: {e}")
+        _log.warning(f"Fehler bei Release-Signaturprüfung (unerwartete Exception): {e}")
         return False
 
 
@@ -264,10 +307,18 @@ def verify_dev_token(token_b64: str, cert_path: Path) -> bool:
         _log.info("Dev-Token gültig — Release Key durch Root autorisiert")
         return True
     except InvalidSignature:
-        _log.warning("Dev-Token UNGÜLTIG gegen autorisierten Release Key")
+        _log.warning(
+            "Dev-Token UNGÜLTIG gegen autorisierten Release Key. "
+            "DEV_TOKEN_MESSAGE ist eine feste Konstante (kein dateibasiertes "
+            "CRLF-Problem hier möglich) — wahrscheinlichste Ursachen: Token "
+            "wurde mit einem ANDEREN Release Key signiert als dem, der "
+            "aktuell im Zertifikat steht (z.B. nach Release-Key-Wechsel "
+            "vergessen, dev_mode.flag neu zu erzeugen), oder die Datei ist "
+            "beschädigt/manuell verändert."
+        )
         return False
     except Exception as e:
-        _log.warning(f"Fehler bei Dev-Token-Prüfung: {e}")
+        _log.warning(f"Fehler bei Dev-Token-Prüfung (unerwartete Exception): {e}")
         return False
 
 

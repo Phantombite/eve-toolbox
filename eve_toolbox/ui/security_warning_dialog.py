@@ -24,11 +24,18 @@ class SecurityWarningDialog(QDialog):
         self._build(title, message)
 
     def _center(self):
-        from PyQt6.QtWidgets import QApplication
-        screen = QApplication.primaryScreen().geometry()
-        self.move(
-            (screen.width()  - self.width())  // 2,
-            (screen.height() - self.height()) // 2)
+        parent = self.parentWidget()
+        if parent is not None:
+            geo = parent.geometry()
+            self.move(
+                geo.x() + (geo.width()  - self.width())  // 2,
+                geo.y() + (geo.height() - self.height()) // 2)
+        else:
+            from PyQt6.QtWidgets import QApplication
+            screen = QApplication.primaryScreen().geometry()
+            self.move(
+                (screen.width()  - self.width())  // 2,
+                (screen.height() - self.height()) // 2)
 
     def _build(self, title: str, message: str):
         lay = QVBoxLayout(self)

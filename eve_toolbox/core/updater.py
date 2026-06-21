@@ -711,17 +711,19 @@ def download_and_install(info: dict, progress_callback=None,
         _prog(85)
 
         # ── version.json aktualisieren ────────────────────────
-        # Wird aus ZIP mitgeliefert — nur überschreiben wenn nicht vorhanden
+        # Wird aus ZIP mitgeliefert — nur überschreiben wenn nicht vorhanden.
+        # write_bytes() statt write_text() aus Konsistenzgründen (siehe
+        # core.integrity.generate_checksums() für den Hintergrund) — diese
+        # Datei wird zwar nicht gegen eine vorherige Signatur verglichen,
+        # aber einheitliches Verhalten vermeidet künftige Verwirrung.
         ver_file = APP_DIR / "version.json"
         if not ver_file.exists():
-            ver_file.write_text(
-                json.dumps({
-                    "version":      new_version,
-                    "notes":        info.get("notes", ""),
-                    "download_zip": download_url,
-                }, indent=2, ensure_ascii=False),
-                encoding="utf-8"
-            )
+            ver_text = json.dumps({
+                "version":      new_version,
+                "notes":        info.get("notes", ""),
+                "download_zip": download_url,
+            }, indent=2, ensure_ascii=False)
+            ver_file.write_bytes(ver_text.encode("utf-8"))
         _log.info(f"version.json: v{new_version}")
 
         # ── checksums.json + Signatur + Zertifikat vom neuen Tag laden ──
