@@ -377,7 +377,11 @@ def lock_session() -> None:
 def delete_all_user_data(include_settings: bool = False) -> None:
     """
     Notausgang: löscht den Vault unwiderruflich (kein Wiederherstellungsweg —
-    das wäre sonst kein echter Schutz). Optional auch App-Einstellungen.
+    das wäre sonst kein echter Schutz). Optional auch App-Einstellungen
+    und Benachrichtigungen — zusammen ergibt das den exakten Zustand
+    vor dem allerersten Start (first_run greift wieder, Welcome-Screen
+    erscheint erneut), nicht nur einen leeren Vault bei sonst
+    unverändertem App-Zustand.
     """
     for p in (VAULT_PATH, SALT_PATH):
         try:
@@ -388,11 +392,13 @@ def delete_all_user_data(include_settings: bool = False) -> None:
 
     if include_settings:
         from core import settings as _settings
-        try:
-            settings_path = _settings.SETTINGS_PATH  # type: ignore[attr-defined]
-            if settings_path.exists():
-                settings_path.unlink()
-        except Exception as e:
-            _log.error(f"Konnte Einstellungen nicht löschen: {e}")
+        from core import notifications as _notifications
+        for path_attr, module in (("SETTINGS_PATH", _settings), ("NOTIF_PATH", _notifications)):
+            try:
+                path = getattr(module, path_attr)
+                if path.exists():
+                    path.unlink()
+            except Exception as e:
+                _log.error(f"Konnte {path_attr} nicht löschen: {e}")
 
     _log.warning("Alle Userdaten gelöscht (Notausgang/Nutzerwunsch)")

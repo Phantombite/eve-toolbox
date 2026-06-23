@@ -44,8 +44,10 @@ def main():
     log.info("=" * 50)
 
     # Jetzt UI-Module importieren — t() gibt bereits die richtige Sprache zurück
+    from pathlib import Path
     from PyQt6.QtWidgets import QApplication
     from PyQt6.QtCore import QTimer
+    from PyQt6.QtGui import QIcon
     from ui.main_window import MainWindow, make_stylesheet
     from ui.splash_screen import SplashScreen
     from core import notifications as nf
@@ -55,6 +57,15 @@ def main():
 
     app = QApplication(sys.argv)
     app.setApplicationName("EVE Toolbox")
+    # Anwendungsweites Icon — wirkt zusätzlich zu window.setWindowIcon()
+    # in main_window.py auf manchen Windows-Konfigurationen robuster auf
+    # die Taskleiste (z.B. bevor das Hauptfenster überhaupt erstellt ist,
+    # während Splash-Screen/Welcome-Screen laufen).
+    icon_path = Path(__file__).resolve().parent / "assets" / "EVE Toolbox.ico"
+    if icon_path.exists():
+        app.setWindowIcon(QIcon(str(icon_path)))
+    else:
+        log.warning(f"App-Icon nicht gefunden: {icon_path}")
 
     dark = s.get("theme", "dark") == "dark"
     app.setStyleSheet(make_stylesheet(s.get("faction", "caldari"), dark))
@@ -193,8 +204,15 @@ def main():
             # ── Stable-Version-Check (Notfall-Rollback) ────────
             # Läuft VOR dem normalen Update-Check: ein erzwungener
             # Rollback hat Vorrang vor einem regulären Update-Angebot.
+            # rollback_popup_shown verhindert, dass im selben Durchlauf
+            # ZUSÄTZLICH noch ein normales Update-Popup erscheint — sonst
+            # sieht der Nutzer zwei unabhängige Popups direkt
+            # hintereinander, was verwirrend ist und nicht dem Sinn
+            # des Stable-Version-Systems entspricht (genau ein
+            # Trust-Entscheid pro Start, nicht zwei konkurrierende).
             log.debug("Prüfe Stable-Version...")
             stable_status = updater.check_stable_version()
+            rollback_popup_shown = False
 
             if stable_status.rollback_needed:
                 log.warning(
@@ -213,6 +231,7 @@ def main():
                 )
                 popup.exec()
                 splash.show()
+                rollback_popup_shown = True
 
                 if popup.result_choice == "install_now" or stable_status.mandatory:
                     splash.set_phase("installing")
@@ -235,7 +254,13 @@ def main():
                 # kein Download, nächster Start fragt erneut.
 
             log.debug("Prüfe auf Updates...")
-            info = updater.check_sync()
+            info = updater.check_sync() if not rollback_popup_shown else None
+            if rollback_popup_shown:
+                log.debug(
+                    "Regulärer Update-Check übersprungen — Rollback-Popup "
+                    "wurde in diesem Durchlauf bereits gezeigt, kein "
+                    "zweites Popup im selben Start."
+                )
 
             if info:
                 log.info(f"Update verfügbar: v{info['version']}")

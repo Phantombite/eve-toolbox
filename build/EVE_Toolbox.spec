@@ -73,7 +73,7 @@ exe = EXE(
     strip=False,
     upx=True,
     console=False,
-    # icon=str(ROOT / "assets" / "icon.ico"),  # Einkommentieren wenn Icon fertig
+    icon=str(EVE_DIR / "assets" / "EVE Toolbox.ico"),
 )
 
 coll = COLLECT(

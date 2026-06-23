@@ -85,6 +85,7 @@ MODULES = [
 FACTIONS = {
     "caldari": {
         "name":          "Caldari",
+        "category":      "faction",
         "accent":        "#185FA5",
         "border":        "#378ADD",
         "light":         "#E6F1FB",
@@ -96,6 +97,7 @@ FACTIONS = {
     },
     "amarr": {
         "name":          "Amarr",
+        "category":      "faction",
         "accent":        "#BA7517",
         "border":        "#EF9F27",
         "light":         "#FAEEDA",
@@ -107,6 +109,7 @@ FACTIONS = {
     },
     "gallente": {
         "name":          "Gallente",
+        "category":      "faction",
         "accent":        "#3B6D11",
         "border":        "#639922",
         "light":         "#EAF3DE",
@@ -118,6 +121,7 @@ FACTIONS = {
     },
     "minmatar": {
         "name":          "Minmatar",
+        "category":      "faction",
         "accent":        "#993C1D",
         "border":        "#D85A30",
         "light":         "#FAECE7",
@@ -127,7 +131,19 @@ FACTIONS = {
         "input_focus":   "#993C1D",
         "button_hover":  "#B04522",
     },
-    # ── Weitere Fraktionen hier hinzufügen ──
+    "ore": {
+        "name":          "ORE",
+        "category":      "corporation",
+        "accent":        "#B8860B",
+        "border":        "#C9A448",
+        "light":         "#F9F5EB",
+        "text_on_accent":"#2B1A00",
+        "tab_active":    "#EDE0C2",
+        "scrollbar":     "#C9A448",
+        "input_focus":   "#B8860B",
+        "button_hover":  "#BF9223",
+    },
+    # ── Weitere Fraktionen/Corporations hier hinzufügen ──
 }
 
 HOME_LAYOUTS = {

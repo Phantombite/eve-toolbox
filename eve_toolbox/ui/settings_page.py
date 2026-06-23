@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                               QSizePolicy, QStackedWidget,
                               QMessageBox, QLineEdit)
 from PyQt6.QtCore import Qt, pyqtSignal, QRectF
-from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QBrush, QPainterPath
+from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QBrush, QPainterPath, QStandardItemModel, QStandardItem
 
 from core.config import FACTIONS, HOME_LAYOUTS, MODULES
 from core.i18n import t, available_languages
@@ -150,6 +150,37 @@ class SettingsCombo(QComboBox):
         super().__init__(parent)
         self.setObjectName("SettingsCombo")
         self.setMinimumWidth(150)
+
+    def add_grouped_items(self, groups: list[tuple[str, list[tuple[str, str]]]]) -> None:
+        """
+        Füllt das Dropdown mit Kategorie-Überschriften zwischen den
+        eigentlichen Einträgen — z.B. "Fraktion" über den vier
+        Imperien, "Corporations" über ORE. Überschriften sind optisch
+        kleiner/grau und nicht anwählbar (eigenes Qt-Standardmuster für
+        gruppierte ComboBoxen, kein echtes Untermenü).
+
+        groups: Liste von (Kategorie-Überschrift, [(anzeige_name, daten_key), ...])
+        """
+        model = QStandardItemModel(self)
+        for category_label, items in groups:
+            header = QStandardItem(category_label)
+            header.setFlags(Qt.ItemFlag.NoItemFlags)  # nicht anwählbar, nicht hervorhebbar
+            header_font = QFont("Segoe UI", 9)
+            header_font.setCapitalization(QFont.Capitalization.AllUppercase)
+            header.setFont(header_font)
+            header.setForeground(QBrush(QColor("#888888")))
+            model.appendRow(header)
+
+            for display_name, data_key in items:
+                item = QStandardItem("    " + display_name)  # leichte Einrückung unter der Überschrift
+                item.setData(data_key, Qt.ItemDataRole.UserRole)
+                model.appendRow(item)
+        self.setModel(model)
+
+    def current_data_grouped(self):
+        """Pendant zu itemData() für die gruppierte Befüllung."""
+        idx = self.model().index(self.currentIndex(), 0)
+        return self.model().data(idx, Qt.ItemDataRole.UserRole)
 
 
 def scrolled(inner: QWidget) -> QScrollArea:
@@ -327,16 +358,34 @@ class PageDarstellung(QWidget):
         lay.addWidget(section(t("settings.appearance")))
         lay.addWidget(hline()); lay.addSpacing(12)
 
-        # Fraktion
+        # Design (Fraktionen + Corporations gruppiert)
         row = SettingRow(t("settings.faction_design"), t("settings.faction_design_desc"))
         self._faction_cb = SettingsCombo()
-        for key, f in sorted(FACTIONS.items(), key=lambda x: x[1]["name"]):
-            self._faction_cb.addItem(f["name"], key)
-        cur = self.settings.get("faction","caldari")
-        sorted_keys = [key for key, _ in sorted(FACTIONS.items(), key=lambda x: x[1]["name"])]
-        self._faction_cb.setCurrentIndex(sorted_keys.index(cur) if cur in sorted_keys else 0)
+
+        factions_sorted = sorted(
+            [(k, f) for k, f in FACTIONS.items() if f.get("category", "faction") == "faction"],
+            key=lambda x: x[1]["name"])
+        corps_sorted = sorted(
+            [(k, f) for k, f in FACTIONS.items() if f.get("category") == "corporation"],
+            key=lambda x: x[1]["name"])
+
+        groups = [(t("settings.category_faction"), [(f["name"], k) for k, f in factions_sorted])]
+        if corps_sorted:
+            groups.append((t("settings.category_corporation"), [(f["name"], k) for k, f in corps_sorted]))
+        self._faction_cb.add_grouped_items(groups)
+
+        # Aktuell gewählten Eintrag in der gruppierten Liste finden
+        # (Index berücksichtigt die zusätzlichen Überschrift-Zeilen)
+        all_sorted_keys = [k for k, _ in factions_sorted] + [k for k, _ in corps_sorted]
+        cur = self.settings.get("faction", "caldari")
+        cur_idx_in_keys = all_sorted_keys.index(cur) if cur in all_sorted_keys else 0
+        # +1 für die erste Überschriftzeile, +1 nochmal falls der Eintrag
+        # in der zweiten Gruppe liegt (zweite Überschriftzeile davor)
+        model_row = cur_idx_in_keys + 1 + (1 if cur_idx_in_keys >= len(factions_sorted) else 0)
+        self._faction_cb.setCurrentIndex(model_row)
+
         self._faction_cb.currentIndexChanged.connect(
-            lambda i: self.faction_changed.emit(self._faction_cb.itemData(i)))
+            lambda i: self.faction_changed.emit(self._faction_cb.current_data_grouped()))
         row.add_control(self._faction_cb); lay.addWidget(row)
         lay.addWidget(hline()); lay.addSpacing(4)
 

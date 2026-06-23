@@ -1,13 +1,14 @@
 """
 Hauptfenster der EVE Toolbox.
 """
+from pathlib import Path
 from core import logger as _logger
 _log = _logger.get("main_window")
 
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
                               QStackedWidget, QLabel, QApplication)
 from PyQt6.QtCore import QPoint, QTimer
-from PyQt6.QtGui import QPalette, QColor
+from PyQt6.QtGui import QPalette, QColor, QIcon
 from PyQt6.QtCore import Qt
 from core.config import APP_NAME, APP_VERSION, MODULES, FACTIONS
 from core import settings as cfg
@@ -373,6 +374,14 @@ class MainWindow(QMainWindow):
         self._app = app
         self.settings = cfg.load()
         self.setWindowTitle(f"{APP_NAME} {APP_VERSION}")
+        # __file__ = .../eve_toolbox/ui/main_window.py -> assets liegt
+        # eine Ebene höher, direkt unter eve_toolbox/ (gleicher Ordner,
+        # der bereits für assets/icons/ genutzt wird, siehe welcome_screen.py)
+        icon_path = Path(__file__).resolve().parent.parent / "assets" / "EVE Toolbox.ico"
+        if icon_path.exists():
+            self.setWindowIcon(QIcon(str(icon_path)))
+        else:
+            _log.warning(f"App-Icon nicht gefunden: {icon_path}")
         self.setMinimumSize(900, 650)
         self.resize(1200, 750)  # Standard — wird nach show() überschrieben
         self._open_tabs = {}
@@ -914,12 +923,20 @@ class MainWindow(QMainWindow):
                 deleted = True
                 _log.warning("Beenden: 'Immer löschen' aktiv — alle Userdaten gelöscht")
             elif delete_once:
-                _vault.delete_all_user_data(include_settings=False)
+                # include_settings=True (nicht False wie ursprünglich):
+                # Nutzer erwartet nach "Einmalig löschen" den exakten
+                # Zustand vor dem allerersten Start (first_run greift
+                # wieder, Welcome-Screen erscheint erneut) — nicht nur
+                # einen leeren Vault bei sonst unverändertem App-Zustand.
+                _vault.delete_all_user_data(include_settings=True)
                 deleted = True
-                _log.info("Beenden: einmaliger Lösch-Trigger ausgeführt")
-                # Trigger zurücksetzen — nur EINMALIG löschen
-                self.settings["delete_once_on_exit"] = False
-                cfg.save(self.settings)
+                _log.info("Beenden: einmaliger Lösch-Trigger ausgeführt (inkl. Settings/Welcome-Screen)")
+                # WICHTIG: kein cfg.save(self.settings) hier — settings.json
+                # wurde gerade gelöscht, ein Schreiben jetzt würde sie mit
+                # dem RAM-Stand (first_run: False) sofort wieder anlegen
+                # und den ganzen Zweck der Löschung unterlaufen. Die Datei
+                # bleibt bewusst weg; beim nächsten Start lädt core.settings
+                # automatisch die Defaults (first_run: True).
             else:
                 # Normalfall: Sitzung im RAM aufräumen. Die Platte zeigt
                 # bereits durchgehend nur die verschlüsselte Version,
