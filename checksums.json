@@ -35,12 +35,12 @@
   "eve_toolbox/ui/main_window.py": "a6acf2d7881f7aca530c61d7851104e608c08946029aa21443dd6f8dbfe362b9",
   "eve_toolbox/ui/notifications_page.py": "0f81478d6a353cfdac40898dac914af610146d30268a34601167636040ff788f",
   "eve_toolbox/ui/security_warning_dialog.py": "ffcd09d2abedf2297726ab328784bcdc65193b2c28b1f7189a671087abbb6a1c",
-  "eve_toolbox/ui/settings_page.py": "77c012ff5eba520c567d2f67cb70f80fab2e0499b81ea41a8411e6ab98f6a1a6",
+  "eve_toolbox/ui/settings_page.py": "8912deb82d347ed711e57f904025a57579fa767c60b42a6bce92f6fcb0921eaf",
   "eve_toolbox/ui/settings_panel.py": "28f5693c3c1635ee5e5ef5f6fab22d68123f032a608b0ebcb69c3621c714a628",
   "eve_toolbox/ui/splash_screen.py": "c470dd098eca63038d2eab2ae042e4bc7335626d2f60355303cfffc9416e6e47",
   "eve_toolbox/ui/topbar.py": "9de3e3a516d0c6d8a5e49d23cf50740952041209dd7e3d9585dfd7902f0edacd",
   "eve_toolbox/ui/unlock_popup.py": "1f0722da996854ffceb0f8792aa97a3ac7eb63a14d4c03e9cc9b6fb4f6909d7b",
   "eve_toolbox/ui/update_popup.py": "b5ffd97bdea891bc04e4f50170ed5403230b6694f703cfcfbe59a39e59d1800e",
   "eve_toolbox/ui/welcome_screen.py": "0198a75f5f9e1822be5e106505d189097c19bc5a95fe1a0a90a5ef0c7e7f11ec",
-  "version.json": "eae648e7f774b7ef30586cdfd07a9ae49ee1a5b257ea1acefdf6f86096a9872e"
+  "version.json": "30790f1f82b69536e5a83c0b4e9608f9be2a4904cb86b8596a0027b2fab014fe"
 }

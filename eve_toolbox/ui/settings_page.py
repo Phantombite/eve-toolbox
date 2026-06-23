@@ -182,6 +182,27 @@ class SettingsCombo(QComboBox):
         idx = self.model().index(self.currentIndex(), 0)
         return self.model().data(idx, Qt.ItemDataRole.UserRole)
 
+    def set_current_data_grouped(self, data_key) -> bool:
+        """
+        Pendant zu setCurrentIndex() für die gruppierte Befüllung —
+        sucht die Zeile, deren UserRole-Daten data_key entsprechen,
+        statt den Zeilenindex (inkl. Überschrift-Offsets) händisch
+        mitzählen zu müssen. Bleibt korrekt, egal wie viele Gruppen
+        oder Einträge add_grouped_items() bekommen hat.
+
+        Gibt True zurück wenn data_key gefunden + gesetzt wurde,
+        sonst False (Auswahl bleibt dann unverändert).
+        """
+        model = self.model()
+        if model is None:
+            return False
+        for row in range(model.rowCount()):
+            idx = model.index(row, 0)
+            if model.data(idx, Qt.ItemDataRole.UserRole) == data_key:
+                self.setCurrentIndex(row)
+                return True
+        return False
+
 
 def scrolled(inner: QWidget) -> QScrollArea:
     s = QScrollArea(); s.setWidgetResizable(True)
@@ -374,15 +395,12 @@ class PageDarstellung(QWidget):
             groups.append((t("settings.category_corporation"), [(f["name"], k) for k, f in corps_sorted]))
         self._faction_cb.add_grouped_items(groups)
 
-        # Aktuell gewählten Eintrag in der gruppierten Liste finden
-        # (Index berücksichtigt die zusätzlichen Überschrift-Zeilen)
-        all_sorted_keys = [k for k, _ in factions_sorted] + [k for k, _ in corps_sorted]
+        # Aktuell gewählten Eintrag in der gruppierten Liste finden —
+        # sucht direkt über den UserRole-Datenwert, unabhängig davon
+        # wie viele Gruppen/Überschriftzeilen existieren.
         cur = self.settings.get("faction", "caldari")
-        cur_idx_in_keys = all_sorted_keys.index(cur) if cur in all_sorted_keys else 0
-        # +1 für die erste Überschriftzeile, +1 nochmal falls der Eintrag
-        # in der zweiten Gruppe liegt (zweite Überschriftzeile davor)
-        model_row = cur_idx_in_keys + 1 + (1 if cur_idx_in_keys >= len(factions_sorted) else 0)
-        self._faction_cb.setCurrentIndex(model_row)
+        if not self._faction_cb.set_current_data_grouped(cur):
+            self._faction_cb.set_current_data_grouped("caldari")
 
         self._faction_cb.currentIndexChanged.connect(
             lambda i: self.faction_changed.emit(self._faction_cb.current_data_grouped()))
@@ -426,8 +444,8 @@ class PageDarstellung(QWidget):
 
     def sync(self):
         cur = self.settings.get("faction","caldari")
-        sorted_keys = [key for key, _ in sorted(FACTIONS.items(), key=lambda x: x[1]["name"])]
-        self._faction_cb.setCurrentIndex(sorted_keys.index(cur) if cur in sorted_keys else 0)
+        if not self._faction_cb.set_current_data_grouped(cur):
+            self._faction_cb.set_current_data_grouped("caldari")
         self._theme_cb.setCurrentIndex(0 if self.settings.get("theme","dark") == "light" else 1)
         lkeys = list(HOME_LAYOUTS.keys())
         cur_l = self.settings.get("home_layout","grid")
