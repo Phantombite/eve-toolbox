@@ -5,6 +5,9 @@ import json
 #   dev_ready:   True = in Entwicklung, sichtbar im Entwicklermodus
 #   (kein Flag)  False/False = geplant, nur im Testmodus sichtbar
 
+from core import logger as _logger
+_log = _logger.get("config")
+
 MODULES = [
     {
         "id":        "assets",
@@ -146,6 +149,29 @@ FACTIONS = {
     # ── Weitere Fraktionen/Corporations hier hinzufügen ──
 }
 
+
+def get_current_faction_colors() -> tuple[str, str]:
+    """
+    Liefert (accent, border) der AKTUELL eingestellten Fraktion.
+
+    Sicher nutzbar auch an Stellen, an denen core.settings möglicherweise
+    noch nicht geladen ist (z.B. core.crash_handler kann theoretisch ganz
+    am Anfang des Programms feuern, bevor Settings existieren). Fällt
+    bei JEDEM Problem auf den echten App-Standard zurück (DEFAULTS
+    ["faction"] = "amarr"), NIEMALS auf eine Exception — ein Fehler beim
+    Ermitteln der Fraktionsfarbe darf nicht dazu führen, dass z.B. der
+    Fehler-Dialog selbst nicht angezeigt werden kann.
+    """
+    faction = "amarr"
+    try:
+        from core import settings as _cfg
+        s = _cfg.load()
+        faction = s.get("faction", "amarr")
+    except Exception:
+        pass
+    f = FACTIONS.get(faction, FACTIONS["amarr"])
+    return f["accent"], f["border"]
+
 HOME_LAYOUTS = {
     "grid":       "Grid",
     "donut_text": "Donut mit Name",
@@ -171,9 +197,13 @@ def _load_version() -> str:
     for path in search_paths:
         if path.exists():
             try:
-                return json.load(open(path, encoding="utf-8"))["version"]
-            except Exception:
-                pass
+                return json.loads(path.read_text(encoding="utf-8"))["version"]
+            except Exception as e:
+                _log.warning(f"version.json bei {path} gefunden, aber nicht lesbar: {e}")
+    _log.error(
+        "version.json an keinem der bekannten Pfade gefunden/lesbar — "
+        "APP_VERSION fällt auf 0.0.0 zurück."
+    )
     return "0.0.0"
 
 APP_VERSION = _load_version()

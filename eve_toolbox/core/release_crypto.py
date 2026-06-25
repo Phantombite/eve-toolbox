@@ -357,9 +357,8 @@ def create_release_cert(release_pubkey_path: Path, root_privkey_path: Path,
         "release_pubkey": release_pubkey_pem,
         "root_signature": root_signature_b64,
     }
-    cert_output_path.write_text(
-        json.dumps(cert, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    cert_text = json.dumps(cert, indent=2, ensure_ascii=False)
+    cert_output_path.write_bytes(cert_text.encode("utf-8"))
     _log.info("release_cert.json erstellt — Release Key vom Root autorisiert")
 
 

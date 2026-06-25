@@ -13,6 +13,10 @@
     "notifications": "Notifications",
     "accounts": "Accounts"
   },
+  "tabs": {
+    "detach": "Open as separate window",
+    "attach": "Re-attach"
+  },
   "home": {
     "accounts": "Accounts",
     "industry_jobs": "Industry Jobs",
@@ -105,6 +109,7 @@
     "dev_mode_desc": "Unlocks modules marked as 'In Development'",
     "test_mode": "Test Mode",
     "test_mode_desc": "Lifts ALL locks — including planned modules. Only available when developer mode is active.",
+    "dev_sub_notifications": "Notifications",
     "emergency_rollback": "Emergency Rollback (only visible with valid dev token)",
     "rollback_to_backup": "Reset to last backup",
     "rollback_button": "Reset",

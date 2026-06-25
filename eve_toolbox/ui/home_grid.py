@@ -45,7 +45,6 @@ class ModuleCard(QWidget):
         super().__init__(parent)
         self.mod        = mod
         self.settings   = settings
-        self._ready     = mod["ready"]
         self._hov       = False
         self._drag_over = False
         self._edit_mode = False
@@ -209,18 +208,6 @@ class ModuleCard(QWidget):
             elif self._is_active():
                 self.clicked.emit(self.mod["id"])
 
-    def retranslate(self):
-        """Baut Stat-Karten mit neuer Sprache neu."""
-        for i, (key, val) in enumerate([
-            ("home.accounts",     "2"),
-            ("home.industry_jobs","—"),
-            ("home.intel_alerts", "0"),
-            ("home.pi_colonies",  "—"),
-        ]):
-            if i < len(self._stat_cards):
-                self._stat_cards[i]._label = t(key)
-                self._stat_cards[i].update()
-
     def set_faction(self, faction: str):
         self.settings["faction"] = faction
         self.update()
@@ -243,18 +230,6 @@ class StatCard(QWidget):
     def set_value(self, v: str):
         self._value = v
         self.update()
-
-    def retranslate(self):
-        """Baut Stat-Karten mit neuer Sprache neu."""
-        for i, (key, val) in enumerate([
-            ("home.accounts",     "2"),
-            ("home.industry_jobs","—"),
-            ("home.intel_alerts", "0"),
-            ("home.pi_colonies",  "—"),
-        ]):
-            if i < len(self._stat_cards):
-                self._stat_cards[i]._label = t(key)
-                self._stat_cards[i].update()
 
     def set_faction(self, faction: str):
         self._faction = faction

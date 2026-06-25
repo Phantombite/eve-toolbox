@@ -76,6 +76,10 @@ class FlySafeDialog(QDialog):
         path.addRoundedRect(QRectF(0, 0, w, h), 16, 16)
         p.fillPath(path, QColor("#0d0d1a"))
         p.setBrush(Qt.BrushStyle.NoBrush)
-        p.setPen(QPen(QColor(100, 50, 180, 120), 1.5))
+        from core.config import get_current_faction_colors
+        _accent, border_hex = get_current_faction_colors()
+        border_color = QColor(border_hex)
+        border_color.setAlpha(120)
+        p.setPen(QPen(border_color, 1.5))
         p.drawPath(path)
         p.end()

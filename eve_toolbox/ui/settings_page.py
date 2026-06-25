@@ -20,14 +20,15 @@ from core.i18n import t, available_languages
 class SidebarItem(QWidget):
     clicked = pyqtSignal()
 
-    def __init__(self, icon: str, label: str, parent=None):
+    def __init__(self, icon: str, label: str, parent=None, indent: bool = False):
         super().__init__(parent)
         self.icon    = icon
         self.label   = label
         self._active = False
         self._hov    = False
         self._accent = "#185FA5"
-        self.setFixedHeight(42)
+        self._indent = indent  # True = Unterkategorie (kleinere Schrift, eingerückt)
+        self.setFixedHeight(42 if not indent else 34)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setMouseTracking(True)
@@ -47,23 +48,39 @@ class SidebarItem(QWidget):
         acc   = QColor(self._accent)
         dark  = self.palette().color(self.palette().ColorRole.Window).lightness() < 128
 
+        # Unterkategorien: dezenteres Hover/Active (schmalerer Akzentstrich,
+        # etwas blasser), damit der visuelle Gewichtsunterschied zur
+        # Hauptkategorie erkennbar bleibt.
+        bar_w = 2 if self._indent else 3
         if self._active:
-            p.fillRect(0, 0, w, h, QColor(acc.red(), acc.green(), acc.blue(), 30))
-            p.fillRect(0, 0, 3, h, acc)
+            p.fillRect(0, 0, w, h, QColor(acc.red(), acc.green(), acc.blue(), 22 if self._indent else 30))
+            p.fillRect(0, 0, bar_w, h, acc)
         elif self._hov:
-            p.fillRect(0, 0, w, h, QColor(acc.red(), acc.green(), acc.blue(), 15))
+            p.fillRect(0, 0, w, h, QColor(acc.red(), acc.green(), acc.blue(), 12 if self._indent else 15))
 
-        p.setFont(QFont("Segoe UI Emoji", 13))
-        p.setPen(QPen(acc if self._active else QColor("#888")))
-        p.drawText(QRectF(12, 0, 28, h),
-                   Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignCenter,
-                   self.icon)
+        icon_x = 28 if self._indent else 12
+        text_x = 58 if self._indent else 46
 
-        p.setFont(QFont("Segoe UI", 11,
+        if not self._indent:
+            p.setFont(QFont("Segoe UI Emoji", 13))
+            p.setPen(QPen(acc if self._active else QColor("#888")))
+            p.drawText(QRectF(icon_x, 0, 28, h),
+                       Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignCenter,
+                       self.icon)
+        else:
+            # Unterkategorien: kleines, dezentes Verbindungssymbol statt
+            # vollem Icon — unterstreicht "ist Teil von der Kategorie drüber"
+            p.setFont(QFont("Segoe UI", 11))
+            p.setPen(QPen(acc if self._active else QColor("#777")))
+            p.drawText(QRectF(icon_x, 0, 22, h),
+                       Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignCenter,
+                       "›")
+
+        p.setFont(QFont("Segoe UI", 9 if self._indent else 11,
                         QFont.Weight.DemiBold if self._active else QFont.Weight.Normal))
         p.setPen(QPen(acc if self._active else
                       (QColor("#e8e8e8") if dark else QColor("#333"))))
-        p.drawText(QRectF(46, 0, w-50, h),
+        p.drawText(QRectF(text_x, 0, w-text_x-4, h),
                    Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
                    self.label)
         p.end()
@@ -627,6 +644,35 @@ class PageEntwickler(QWidget):
         self._test_btn.setEnabled(dev)
 
 
+class PageDevNotifications(QWidget):
+    """
+    Entwickler-Unterkategorie: Nachrichten-Simulator. Zeigt die
+    SimulatorPage aus notifications_page.py — die Signale werden
+    von MainWindow auf die echte NotificationsPage verdrahtet, damit
+    simulierte Nachrichten genauso ankommen wie echte (Glocke,
+    Badge-Zähler, etc.), obwohl die Bedienoberfläche jetzt hier in
+    den Einstellungen sitzt statt in Notifications selbst.
+    """
+    notification_added    = pyqtSignal(dict)
+    notifications_cleared = pyqtSignal()
+
+    def __init__(self, settings: dict, parent=None):
+        super().__init__(parent)
+        from ui.notifications_page import SimulatorPage
+        self.settings = settings
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+
+        self._sim_page = SimulatorPage(settings)
+        self._sim_page.notification_added.connect(self.notification_added)
+        self._sim_page.notifications_cleared.connect(self.notifications_cleared)
+        outer.addWidget(self._sim_page)
+
+    def sync(self):
+        pass
+
+
 class PageZuruecksetzen(QWidget):
     reset_requested = pyqtSignal(str)
 
@@ -1071,7 +1117,7 @@ class PageAccounts(QWidget):
 
     def _on_login_error(self):
         """Login fehlgeschlagen — Button erst nach 2 Sek freigeben damit Server-Thread fertig ist."""
-        print(f"[{__import__('time').strftime('%H:%M:%S')}][UI] login_error Signal empfangen", flush=True)
+        _log.debug("login_error Signal empfangen")
         if hasattr(self, "_countdown_timer") and self._countdown_timer:
             self._countdown_timer.stop()
             self._countdown_timer = None
@@ -1088,7 +1134,7 @@ class PageAccounts(QWidget):
 
     def _on_login_done(self):
         """Wird im Main Thread aufgerufen wenn Login erfolgreich — thread-sicher."""
-        print(f"[{__import__('time').strftime('%H:%M:%S')}][UI] login_done Signal empfangen", flush=True)
+        _log.debug("login_done Signal empfangen")
         # Countdown Timer stoppen
         if hasattr(self, "_countdown_timer") and self._countdown_timer:
             self._countdown_timer.stop()
@@ -1183,6 +1229,7 @@ class PageAccounts(QWidget):
         if not self._selected:
             return
         from core import esi as esi_mod
+        _log.info(f"{len(self._selected)} Charakter(e) werden gelöscht: {', '.join(self._selected)}")
         for cid in self._selected:
             esi_mod.delete_token(cid)
         self._selected.clear()
@@ -1199,7 +1246,7 @@ class PageAccounts(QWidget):
         """ESI Login starten."""
         from core import esi as esi_mod
         from PyQt6.QtCore import QTimer
-        print(f"[{__import__('time').strftime('%H:%M:%S')}][UI] Login-Button geklickt", flush=True)
+        _log.debug("Login-Button geklickt")
         # Vorherigen Timer stoppen falls noch einer läuft
         if hasattr(self, "_countdown_timer") and self._countdown_timer:
             self._countdown_timer.stop()
@@ -1451,22 +1498,44 @@ class SettingsPage(QWidget):
     delete_once_changed   = pyqtSignal(bool)
     delete_always_changed = pyqtSignal(bool)
 
-    CATEGORIES = [
-        ("🌐", "Allgemein"),
-        ("🔄", "Updates"),
-        ("🎨", "Darstellung"),
-        ("👤", "Accounts"),
-        ("🔐", t("security.tab_title")),
-        ("🧩", t("settings.func_info")),
-        ("🛠", "Entwickler"),
-        ("↺",  t("settings.reset_btn")),
-    ]
+    # Eindeutiger interner Key für die Notifications-Unterkategorie unter
+    # Entwickler — getrennt vom Anzeige-Label, damit keine Kollision mit
+    # einem eventuell gleichnamigen Haupt-Reiter entstehen kann.
+    DEV_SUB_NOTIFICATIONS = "__dev_notifications__"
+
+    def _visible_categories(self):
+        """
+        Baut die aktuell sichtbare Kategorie-Liste dynamisch:
+        - "Entwickler" erscheint nur bei gültigem, signiertem Dev-Token
+          (core.integrity.check_dev_token()) — ohne Token taucht der
+          Reiter in der Navigation gar nicht auf.
+        - Die Unterkategorien darunter (z.B. Notifications-Simulator)
+          erscheinen nur zusätzlich, wenn dev_mode in den Einstellungen
+          aktiv ist. Jeder Eintrag: (icon, key, label, is_sub).
+        """
+        cats = [
+            ("🌐", "Allgemein", "Allgemein", False),
+            ("🔄", "Updates", "Updates", False),
+            ("🎨", "Darstellung", "Darstellung", False),
+            ("👤", "Accounts", "Accounts", False),
+            ("🔐", t("security.tab_title"), t("security.tab_title"), False),
+            ("🧩", t("settings.func_info"), t("settings.func_info"), False),
+        ]
+        from core import integrity as _integrity
+        if _integrity.check_dev_token():
+            cats.append(("🛠", "Entwickler", "Entwickler", False))
+            if self.settings.get("dev_mode", False):
+                cats.append(("›", self.DEV_SUB_NOTIFICATIONS,
+                              t("settings.dev_sub_notifications"), True))
+        cats.append(("↺", t("settings.reset_btn"), t("settings.reset_btn"), False))
+        return cats
 
     def __init__(self, settings: dict, parent=None):
         super().__init__(parent)
         self.settings = settings
         self._accent  = FACTIONS.get(
             settings.get("faction","caldari"), FACTIONS["caldari"])["accent"]
+        self._current_key = "Allgemein"
         self._build()
 
     def _build(self):
@@ -1490,13 +1559,17 @@ class SettingsPage(QWidget):
         sb.addWidget(sb_hdr)
         sb.addWidget(hline())
 
+        # Container, der NUR die Sidebar-Items hält — wird bei
+        # dev_mode-Wechsel geleert und neu befüllt, ohne Header/Footer
+        # der Sidebar anzufassen (siehe _rebuild_sidebar_items).
+        self._items_container = QWidget()
+        self._items_lay = QVBoxLayout(self._items_container)
+        self._items_lay.setContentsMargins(0, 0, 0, 0)
+        self._items_lay.setSpacing(0)
+        sb.addWidget(self._items_container)
         self._sidebar_items: list[SidebarItem] = []
-        for icon, label in self.CATEGORIES:
-            item = SidebarItem(icon, label)
-            item.set_accent(self._accent)
-            item.clicked.connect(lambda l=label: self._switch(l))
-            sb.addWidget(item)
-            self._sidebar_items.append(item)
+        self._sidebar = sidebar
+        self._rebuild_sidebar_items()
 
         sb.addStretch()
         sb.addWidget(hline())
@@ -1526,6 +1599,7 @@ class SettingsPage(QWidget):
             t("security.tab_title"): PageSicherheit(self.settings),
             t("settings.func_info"): PageFunktionsInfo(self.settings),
             "Entwickler":     PageEntwickler(self.settings),
+            self.DEV_SUB_NOTIFICATIONS: PageDevNotifications(self.settings),
             t("settings.reset_btn"):   PageZuruecksetzen(self.settings),
         }
         self._pages["Allgemein"].language_changed.connect(self.language_changed)
@@ -1534,7 +1608,7 @@ class SettingsPage(QWidget):
         self._pages["Darstellung"].theme_changed.connect(self.theme_changed)
         self._pages["Darstellung"].layout_changed.connect(self.layout_changed)
         self._pages["Darstellung"].edit_mode_changed.connect(self.edit_mode_changed)
-        self._pages["Entwickler"].dev_mode_changed.connect(self.dev_mode_changed)
+        self._pages["Entwickler"].dev_mode_changed.connect(self._on_dev_mode_changed)
         self._pages["Entwickler"].test_mode_changed.connect(self.test_mode_changed)
         self._pages[t("security.tab_title")].lock_requested.connect(self.lock_requested)
         self._pages[t("security.tab_title")].autolock_changed.connect(self.autolock_changed)
@@ -1550,6 +1624,53 @@ class SettingsPage(QWidget):
         root.addWidget(self._stack, stretch=1)
         self._switch("Allgemein")
 
+    def _rebuild_sidebar_items(self):
+        """
+        Baut NUR die Liste der Sidebar-Items neu auf (nicht Header/
+        Footer/Stack) — z.B. wenn sich dev_mode ändert und die
+        Notifications-Unterkategorie erscheinen/verschwinden soll.
+        Nach dem Vorbild von PageAccounts._build(): setUpdatesEnabled
+        während des Umbaus deaktivieren, Widgets per setParent(None)
+        statt deleteLater() sofort entfernen, damit nichts "rumfaxt".
+        """
+        self._items_container.setUpdatesEnabled(False)
+
+        while self._items_lay.count():
+            item = self._items_lay.takeAt(0)
+            w = item.widget()
+            if w:
+                w.hide()
+                w.setParent(None)
+        self._sidebar_items.clear()
+
+        for icon, key, label, is_sub in self._visible_categories():
+            item = SidebarItem(icon, label, indent=is_sub)
+            item.set_accent(self._accent)
+            item.clicked.connect(lambda k=key: self._switch(k))
+            self._items_lay.addWidget(item)
+            self._sidebar_items.append((key, item))
+
+        self._items_container.setUpdatesEnabled(True)
+
+    def _on_dev_mode_changed(self, enabled: bool):
+        """dev_mode-Toggle in der Entwickler-Seite -> Sidebar live neu
+        aufbauen (Notifications-Unterkategorie erscheint/verschwindet),
+        ohne dass die Einstellungsseite neu geöffnet werden muss.
+
+        self.settings wird hier selbst aktualisiert (statt nur auf
+        MainWindow._on_dev_mode() zu warten) — sonst läuft
+        _rebuild_sidebar_items() noch mit dem alten Wert, da dieses
+        Signal vor MainWindows eigenem settings["dev_mode"]=...
+        Schreibzugriff ankommt."""
+        self.settings["dev_mode"] = enabled
+        was_on_sub = self._current_key == self.DEV_SUB_NOTIFICATIONS
+        self._rebuild_sidebar_items()
+        if was_on_sub and not enabled:
+            # Unterkategorie verschwunden während man drauf war ->
+            # zurück zur Entwickler-Hauptseite wechseln.
+            self._switch("Entwickler")
+        self.dev_mode_changed.emit(enabled)
+
     def _on_accounts_changed(self):
         """Accounts-Seite neu aufbauen, dann Popup informieren."""
         from PyQt6.QtCore import QTimer
@@ -1561,15 +1682,17 @@ class SettingsPage(QWidget):
             self.accounts_changed.emit()
         QTimer.singleShot(200, _do)
 
-    def _switch(self, label: str):
-        for i, (_, lbl) in enumerate(self.CATEGORIES):
-            self._sidebar_items[i].set_active(lbl == label)
-        page = self._pages.get(label)
+    def _switch(self, key: str):
+        self._current_key = key
+        for item_key, item in self._sidebar_items:
+            item.set_active(item_key == key)
+        page = self._pages.get(key)
         if page:
             self._stack.setCurrentWidget(page)
 
     def _on_reset(self, what: str):
         from core import settings as cfg
+        _log.info(f"Einstellungen werden zurückgesetzt: {what}")
         if what in ("layout", "all"):
             self.settings["module_order"] = []
         if what in ("settings", "all"):
@@ -1602,13 +1725,12 @@ class SettingsPage(QWidget):
         for page in self._pages.values():
             if hasattr(page, "retranslate"):
                 page.retranslate()
-        # Sidebar-Labels aktualisieren
-        for i, (icon, label) in enumerate(self.CATEGORIES):
-            if i < len(self._sidebar_items):
-                self._sidebar_items[i].label = t(f"settings.{label.lower().replace('-','_').replace('ü','u').replace('ä','a').replace('ö','o')}") if False else label
+        # Sidebar neu aufbauen (übersetzte Labels kommen direkt aus
+        # _visible_categories(), kein manuelles Label-Patchen mehr nötig)
+        self._rebuild_sidebar_items()
         self.sync()
 
     def set_faction(self, faction: str):
         self._accent = FACTIONS.get(faction, FACTIONS["caldari"])["accent"]
-        for item in self._sidebar_items:
+        for _key, item in self._sidebar_items:
             item.set_accent(self._accent)

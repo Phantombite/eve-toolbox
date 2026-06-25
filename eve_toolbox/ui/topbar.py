@@ -147,9 +147,12 @@ class GearButton(QWidget):
         self.setMouseTracking(True)
 
     def mousePressEvent(self, event):
+        # Togglet self._checked NICHT mehr selbst — set_active() wird von
+        # jedem verbundenen Handler (z.B. _toggle_settings/_toggle_bell_popup)
+        # ohnehin sofort danach mit dem tatsächlichen Zustand aufgerufen.
+        # Der vorherige Eigen-Toggle hier war redundant und ein Risiko für
+        # künftige Handler, die set_active() vergessen könnten.
         if event.button() == __import__('PyQt6.QtCore', fromlist=['Qt']).Qt.MouseButton.LeftButton:
-            self._checked = not self._checked
-            self.update()
             self.clicked.emit()
 
     def enterEvent(self, event):
@@ -479,6 +482,8 @@ class Topbar(QWidget):
         win = self.window()
         if hasattr(win, "_open_tabs") and mod_id in win._open_tabs:
             win.stack.setCurrentIndex(win._open_tabs[mod_id])
+            if hasattr(win, "_update_detach_button"):
+                win._update_detach_button(mod_id)
         self.set_active_tab(mod_id)
 
     def _close_tab(self, mod_id: str):

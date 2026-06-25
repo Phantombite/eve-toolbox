@@ -355,15 +355,32 @@ def create_backup() -> bool:
 # main.py entscheidet anhand von core.integrity.IntegrityResult, welche
 # Dateien das sind.
 
-def _restore_single_file(rel_key: str, version: str) -> bool:
+def _restore_single_file(rel_key: str, version: str, expected_hash: str | None) -> bool:
     """
     Lädt eine einzelne Datei vom exakt gleichen GitHub Tag wie die
     installierte Version. Wird NUR über repair_files() aufgerufen,
-    nicht direkt von außen — die Signaturprüfung der zugehörigen
-    checksums.json ist bereits in core.integrity passiert, BEVOR diese
-    Funktion überhaupt aufgerufen wird (repair_files() verifiziert das
-    nicht erneut, sondern vertraut auf den Aufrufer-Vertrag).
+    nicht direkt von außen.
+
+    WICHTIG (Sicherheitslücke geschlossen): Die Signaturprüfung von
+    checksums.json beweist nur, dass die LISTE der erwarteten Hashes
+    authentisch ist — sie beweist NICHT, dass der bei der Reparatur
+    tatsächlich heruntergeladene Einzel-Inhalt damit übereinstimmt
+    (raw.githubusercontent.com ist nur durch TLS geschützt, nicht durch
+    die Ed25519-Vertrauenskette). Diese Funktion hasht den Download
+    daher selbst (mit derselben CRLF-Normalisierung wie core.integrity)
+    und vergleicht ihn gegen expected_hash, BEVOR irgendetwas auf die
+    Platte geschrieben wird. expected_hash=None (Datei nicht in
+    checksums.json, sollte praktisch nicht vorkommen) lehnt sicherheits-
+    halber ab statt blind zu vertrauen.
     """
+    if not expected_hash:
+        _log.error(
+            f"Wiederherstellung abgelehnt: kein erwarteter Hash für "
+            f"{rel_key} in der signierten checksums.json vorhanden — "
+            f"ungeprüfter Download wäre nötig, das wird verweigert."
+        )
+        return False
+
     tag = f"v{version}" if version != "main" else GITHUB_BRANCH
     url = (
         f"https://raw.githubusercontent.com/{GITHUB_USER}/"
@@ -375,6 +392,21 @@ def _restore_single_file(rel_key: str, version: str) -> bool:
         req = Request(url, headers={"User-Agent": f"EVE-Toolbox/{APP_VERSION}"})
         with urlopen(req, timeout=30) as resp:
             content = resp.read()
+
+        # Hash-Gegenprobe gegen den bereits signaturgeprüften Wert —
+        # erst danach wird überhaupt etwas auf die Platte geschrieben.
+        from core.integrity import _hash_data, TEXT_EXTENSIONS
+        is_text = target.suffix.lower() in TEXT_EXTENSIONS
+        actual_hash = _hash_data(content, is_text)
+        if actual_hash != expected_hash:
+            _log.error(
+                f"Wiederherstellung ABGELEHNT für {rel_key}: Hash des "
+                f"Downloads stimmt nicht mit dem signierten checksums.json-"
+                f"Eintrag überein (erwartet {expected_hash[:12]}…, "
+                f"erhalten {actual_hash[:12]}…). Datei NICHT geschrieben."
+            )
+            return False
+
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(content)
         _log.info(f"Wiederhergestellt: {rel_key}")
@@ -385,7 +417,7 @@ def _restore_single_file(rel_key: str, version: str) -> bool:
 
 
 def repair_files(file_list: list[str], version: str, verified_signature: bool,
-                  progress_callback=None) -> tuple[list[str], list[str]]:
+                  checksums: dict, progress_callback=None) -> tuple[list[str], list[str]]:
     """
     Zentraler Reparatur-Auftrag: lädt jede Datei in file_list vom
     versionierten GitHub Tag neu herunter und überschreibt die lokale
@@ -398,12 +430,14 @@ def repair_files(file_list: list[str], version: str, verified_signature: bool,
     (core.integrity.run_check()/mini_check() tun das automatisch, bevor
     sie missing_files/corrupted_files befüllen.)
 
+    checksums MUSS das dazugehörige, bereits signaturgeprüfte Dict aus
+    demselben IntegrityResult sein (result.checksums) — jede Datei wird
+    nach dem Download gegen checksums[rel_key] gehasht, bevor sie
+    geschrieben wird (siehe _restore_single_file).
+
     Diese Funktion vertraut das nicht nur per Dokumentation — sie
     erzwingt es technisch: ein Aufruf mit verified_signature=False
     wirft RuntimeError, statt stillschweigend trotzdem zu installieren.
-    Das verhindert, dass künftiger Code (auch von dir selbst, Monate
-    später) versehentlich eine ungeprüfte Dateiliste durchwinkt, nur
-    weil ein Docstring-Kommentar es so vorausgesetzt hatte.
     """
     if not verified_signature:
         raise RuntimeError(
@@ -420,7 +454,7 @@ def repair_files(file_list: list[str], version: str, verified_signature: bool,
             pct = int(i / total * 100) if total else 100
             progress_callback(pct, f"Repariere {rel_key.split('/')[-1]}...")
 
-        if _restore_single_file(rel_key, version):
+        if _restore_single_file(rel_key, version, checksums.get(rel_key)):
             fixed.append(rel_key)
         else:
             failed.append(rel_key)

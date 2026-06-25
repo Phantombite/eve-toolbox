@@ -59,21 +59,75 @@ if %errorlevel% neq 0 (
 )
 
 echo.
+:ask_devmode
 echo ------------------------------------------------
-echo  Vollstaendiger Start mit Integritaets-/Update-Check?
-echo  [j] = Ja  -  normaler Start, prueft gegen GitHub
-echo  [n] = Nein - Entwickler-Start, ueberspringt Checks
+echo  Im Entwicklermodus starten?
+echo  [j] = Ja  -  Checks werden uebersprungen (sicher, fuer lokales Testen)
+echo  [n] = Nein - Vollstaendiger Start mit Integritaets-/Update-Check
 echo ------------------------------------------------
 set CHECK_CHOICE=
 set /p CHECK_CHOICE="Auswahl (j/n) > "
 
-if /i "!CHECK_CHOICE!"=="n" (
+if /i "!CHECK_CHOICE!"=="j" (
     set EVE_SKIP_CHECKS=1
-    echo [DEV] Integritaets-/Update-Check wird uebersprungen
-) else (
-    set EVE_SKIP_CHECKS=
-    echo [OK] Vollstaendiger Start mit Checks
+    echo [DEV] Entwicklermodus aktiv - Integritaets-/Update-Check wird uebersprungen
+    goto :checks_resolved
 )
+if /i "!CHECK_CHOICE!"=="n" goto :ask_warning
+
+echo.
+echo [HINWEIS] Ungueltige Eingabe — bitte nur j oder n eingeben.
+echo.
+goto :ask_devmode
+
+
+:ask_warning
+echo.
+echo ------------------------------------------------
+echo  WARNUNG: Beim vollstaendigen Start werden automatisch
+echo  alle lokalen Dateien ueberschrieben, die noch nicht
+echo  auf GitHub veroeffentlicht sind!
+echo  Willst du abbrechen?
+echo  [j] = Ja, abbrechen   -  zurueck zur vorherigen Frage
+echo  [n] = Nein, nicht abbrechen
+echo ------------------------------------------------
+set WARN_CHOICE=
+set /p WARN_CHOICE="Auswahl (j/n) > "
+
+if /i "!WARN_CHOICE!"=="j" goto :ask_devmode
+if /i "!WARN_CHOICE!"=="n" goto :ask_sure
+
+echo.
+echo [HINWEIS] Ungueltige Eingabe — bitte nur j oder n eingeben.
+echo.
+goto :ask_warning
+
+
+:ask_sure
+echo.
+echo ------------------------------------------------
+echo  Bist du dir ABSOLUT SICHER, dass du OHNE
+echo  Entwicklermodus starten willst?
+echo  [j] = Ja, sicher   -  vollstaendiger Start mit Checks
+echo  [n] = Nein, doch nicht  -  zurueck zur ersten Frage
+echo ------------------------------------------------
+set SURE_CHOICE=
+set /p SURE_CHOICE="Auswahl (j/n) > "
+
+if /i "!SURE_CHOICE!"=="j" (
+    set EVE_SKIP_CHECKS=
+    echo [OK] Vollstaendiger Start mit Checks bestaetigt
+    goto :checks_resolved
+)
+if /i "!SURE_CHOICE!"=="n" goto :ask_devmode
+
+echo.
+echo [HINWEIS] Ungueltige Eingabe — bitte nur j oder n eingeben.
+echo.
+goto :ask_sure
+
+
+:checks_resolved
 
 :: Debug-Umgebungsvariable setzen
 set EVE_TOOLBOX_DEBUG=1

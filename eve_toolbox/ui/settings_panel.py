@@ -24,13 +24,39 @@ class SettingsPanel(QWidget):
         self.settings = settings
         self.setObjectName("SettingsPanel")
         self.setFixedWidth(260)
+        # Layout EINMAL erzeugen, nie wieder neu — QWidget.setLayout()
+        # (was QVBoxLayout(self) intern aufruft) lehnt ein zweites Layout
+        # auf demselben Widget ab. _build() leert/befüllt dieses eine
+        # Layout bei jedem Aufruf, statt ein neues zu erzeugen (das war
+        # vorher der Bug: nach retranslate() blieb das Panel leer, weil
+        # Qt das zweite QVBoxLayout(self) nur mit einer Warnung verwarf).
+        self._outer_layout = QVBoxLayout(self)
+        self._outer_layout.setContentsMargins(14, 14, 14, 14)
+        self._outer_layout.setSpacing(10)
         self._build()
         self.adjustSize()
 
+    def _clear_layout_item(self, item):
+        """Entfernt ein Layout-Item rekursiv — sowohl direkte Widgets
+        als auch verschachtelte Sub-Layouts (z.B. edit_row/info unten),
+        deren enthaltene Widgets sonst beim Leeren übersehen würden."""
+        w = item.widget()
+        if w:
+            w.deleteLater()
+            return
+        sub_layout = item.layout()
+        if sub_layout:
+            while sub_layout.count():
+                self._clear_layout_item(sub_layout.takeAt(0))
+
     def _build(self):
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(14, 14, 14, 14)
-        lay.setSpacing(10)
+        # Bestehenden Inhalt entfernen, falls _build() ein weiteres Mal
+        # läuft (z.B. über retranslate() nach Sprachwechsel) — danach
+        # wird dasselbe self._outer_layout wiederverwendet und neu befüllt.
+        while self._outer_layout.count():
+            self._clear_layout_item(self._outer_layout.takeAt(0))
+
+        lay = self._outer_layout
 
         title = QLabel(t("settings.quick_title"))
         title.setObjectName("PanelTitle")
@@ -73,12 +99,8 @@ class SettingsPanel(QWidget):
         self.edit_mode_changed.emit(enabled)
 
     def retranslate(self):
-        """Wird bei Sprachwechsel aufgerufen — baut Panel neu."""
-        # Layout leeren
-        while self.layout().count():
-            item = self.layout().takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        """Wird bei Sprachwechsel aufgerufen — baut Panel neu (verwendet
+        weiterhin dasselbe self._outer_layout, siehe _build())."""
         self._build()
         self.adjustSize()
 

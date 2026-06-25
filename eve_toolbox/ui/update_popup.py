@@ -150,7 +150,11 @@ class UpdatePopup(QDialog):
         install_btn.setFixedHeight(40)
         install_btn.setMinimumWidth(110)
         install_btn.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
-        accent = "#c0392b" if (self._rollback and self._mandatory) else "#7B2FBE"
+        if self._mandatory:
+            accent = "#c0392b"  # Pflicht-Rollback bleibt bewusst fest Rot
+        else:
+            from core.config import get_current_faction_colors
+            accent, _border = get_current_faction_colors()
         install_btn.setStyleSheet(
             f"background: {accent}; color: white; border-radius: 8px; border: none;")
         self._set_elided_text(install_btn, install_label, available_btn_width)
@@ -211,7 +215,13 @@ class UpdatePopup(QDialog):
         path.addRoundedRect(QRectF(0, 0, w, h), 16, 16)
         p.fillPath(path, QColor("#0d0d1a"))
         p.setBrush(Qt.BrushStyle.NoBrush)
-        border_color = QColor(192, 57, 43, 160) if self._mandatory else QColor(100, 50, 180, 120)
+        if self._mandatory:
+            border_color = QColor(192, 57, 43, 160)  # Pflicht-Rollback bleibt bewusst fest Rot
+        else:
+            from core.config import get_current_faction_colors
+            _accent, border_hex = get_current_faction_colors()
+            border_color = QColor(border_hex)
+            border_color.setAlpha(160)
         p.setPen(QPen(border_color, 1.5))
         p.drawPath(path)
         p.end()

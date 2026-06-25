@@ -8,6 +8,9 @@ Nutzung:
 import json
 from pathlib import Path
 
+from core import logger as _logger
+_log = _logger.get("i18n")
+
 # Sucht i18n Ordner an mehreren möglichen Stellen
 def _find_lang_dir() -> Path:
     import sys
@@ -36,12 +39,18 @@ def set_language(code: str) -> None:
     global _lang, _cache
     path = _LANG_DIR / f"{code}.json"
     if not path.exists():
+        _log.warning(f"Sprachdatei {code}.json nicht gefunden — falle zurück auf {_DEFAULT}")
         path = _LANG_DIR / f"{_DEFAULT}.json"
         code = _DEFAULT
     try:
         _cache = json.loads(path.read_text(encoding="utf-8"))
         _lang  = code
-    except Exception:
+        _log.debug(f"Sprache gesetzt: {code}")
+    except Exception as e:
+        _log.error(
+            f"Sprachdatei {path.name} konnte nicht geladen werden ({e}) — "
+            f"alle Texte zeigen jetzt [key]-Platzhalter statt Übersetzungen."
+        )
         _cache = {}
         _lang  = _DEFAULT
 
@@ -61,8 +70,8 @@ def available_languages() -> list[dict]:
                 "code":     meta.get("code", f.stem),
                 "name":     meta.get("language", f.stem),
             })
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f"Sprachdatei {f.name} konnte nicht gelesen werden, wird ignoriert: {e}")
     return langs
 
 

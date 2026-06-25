@@ -57,6 +57,14 @@ def main():
 
     app = QApplication(sys.argv)
     app.setApplicationName("EVE Toolbox")
+
+    # Globaler Exception-Hook — so früh wie möglich installieren, bevor
+    # irgendein Slot/Signal feuern oder ein Hintergrund-Thread starten
+    # kann. Sicherheitsnetz gegen unsichtbare Fehler in jedem kommenden
+    # Modul (siehe core.crash_handler Docstring für den Hintergrund).
+    from core import crash_handler
+    crash_handler.install(app)
+
     # Anwendungsweites Icon — wirkt zusätzlich zu window.setWindowIcon()
     # in main_window.py auf manchen Windows-Konfigurationen robuster auf
     # die Taskleiste (z.B. bevor das Hauptfenster überhaupt erstellt ist,
@@ -111,6 +119,9 @@ def main():
         window.resize(w, h)
         splash.close()
         log.info(f"Hauptfenster geöffnet ({w}x{h})")
+
+        from core import memory_monitor
+        memory_monitor.start()
 
         if getattr(_run_startup, "dev_mode_triggered", False):
             from ui.dev_mode_notice import DevModeNoticeDialog
@@ -178,7 +189,7 @@ def main():
             to_fix = mini_result.missing_files + mini_result.corrupted_files
             log.info(f"Mini-Check: {len(to_fix)} kritische Datei(en) werden repariert...")
             local_version = integrity.get_local_version()
-            fixed, failed = updater.repair_files(to_fix, local_version, verified_signature=True)
+            fixed, failed = updater.repair_files(to_fix, local_version, verified_signature=True, checksums=mini_result.checksums)
             if failed:
                 log.error(f"Mini-Check: {len(failed)} Datei(en) konnten nicht repariert werden: {failed}")
             else:
@@ -232,6 +243,10 @@ def main():
                 popup.exec()
                 splash.show()
                 rollback_popup_shown = True
+                log.info(
+                    f"Rollback-Popup: Nutzer-Entscheidung = {popup.result_choice!r} "
+                    f"(mandatory={stable_status.mandatory})"
+                )
 
                 if popup.result_choice == "install_now" or stable_status.mandatory:
                     splash.set_phase("installing")
@@ -279,6 +294,7 @@ def main():
                 )
                 popup.exec()
                 splash.show()
+                log.info(f"Update-Popup: Nutzer-Entscheidung = {popup.result_choice!r}")
 
                 if popup.result_choice == "install_now":
                     splash.set_phase("installing")
@@ -369,7 +385,7 @@ def main():
                 splash.set_status(status, mapped)
                 app.processEvents()
 
-            fixed, failed = updater.repair_files(to_fix, local_version, verified_signature=True, progress_callback=_repair_progress)
+            fixed, failed = updater.repair_files(to_fix, local_version, verified_signature=True, checksums=int_result.checksums, progress_callback=_repair_progress)
 
             if failed:
                 log.error(f"Integritätscheck: {len(failed)} Fehler — {failed}")

@@ -153,9 +153,13 @@ class BellPopup(QWidget):
         text.setStyleSheet("font-size: 10px; color: #888; background: transparent;")
         cl.addWidget(text)
 
-        # Klick → direkt zur Nachricht
+        # Klick → direkt zur Nachricht (nur Linksklick, konsistent mit
+        # allen anderen Klick-Handlern im Projekt)
         nid = notif["id"]
-        card.mousePressEvent = lambda e: self._on_notif_click(nid)
+        def _on_press(e, nid=nid):
+            if e.button() == Qt.MouseButton.LeftButton:
+                self._on_notif_click(nid)
+        card.mousePressEvent = _on_press
         return card
 
     def _on_notif_click(self, notif_id: str):

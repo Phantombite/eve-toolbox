@@ -296,7 +296,7 @@ def scrolled_list(widgets: list, empty_text: str = "Keine Meldungen") -> QScroll
 class NotificationsPage(QWidget):
     close_requested          = pyqtSignal()
     unread_changed           = pyqtSignal(bool)
-    all_notifications_changed= pyqtSignal(list)  # echt + sim  # hat es noch ungelesene?
+    all_notifications_changed= pyqtSignal(list)  # echt + sim — hat es noch ungelesene?
 
     @property
     def CATEGORIES(self):
@@ -307,7 +307,6 @@ class NotificationsPage(QWidget):
             ("🔄", t("notifications.updates"),  nf.TYPE_UPDATE,  False),
             ("📰", t("notifications.news"),     nf.TYPE_NEWS,    False),
             ("📋", t("notifications.all"),      None,            False),
-            ("🧪", t("notifications.simulator"),"__sim__",       False),
         ]
 
     def __init__(self, notifications: list, settings: dict, parent=None):
@@ -316,9 +315,10 @@ class NotificationsPage(QWidget):
         self._settings      = settings
         self._accent        = FACTIONS.get(
             settings.get("faction","caldari"), FACTIONS["caldari"])["accent"]
-        self._sim_page      = SimulatorPage(settings)
-        self._sim_page.notification_added.connect(self._on_sim_notif)
-        self._sim_page.notifications_cleared.connect(self._on_sim_clear)
+        # SimulatorPage lebt jetzt als Entwickler-Unterkategorie in den
+        # Einstellungen (ui/settings_page.py) — diese Seite empfängt nur
+        # noch die Ergebnisse über _on_sim_notif()/_on_sim_clear(), die
+        # von dort aus verbunden werden (siehe MainWindow).
         self._sim_notifs: list = []
         self._build()
 
@@ -351,9 +351,6 @@ class NotificationsPage(QWidget):
             item.clicked.connect(lambda l=label: self._switch(l))
             sb.addWidget(item)
             self._sidebar_items.append(item)
-            # Simulator nur im Test-Modus sichtbar
-            if ntype == "__sim__":
-                item.setVisible(self._settings.get("test_mode", False))
 
         sb.addStretch()
         sb.addWidget(hline())
@@ -403,30 +400,15 @@ class NotificationsPage(QWidget):
 
     def _refresh_all(self):
         """Nur Stack neu bauen — Sidebar-Items bleiben bestehen."""
-        # Alle Stack-Widgets entfernen außer sim_page (die bleibt im RAM)
-        to_remove = []
-        for i in range(self._stack.count()):
-            w = self._stack.widget(i)
-            if w is not self._sim_page:
-                to_remove.append(w)
+        to_remove = [self._stack.widget(i) for i in range(self._stack.count())]
         for w in to_remove:
             self._stack.removeWidget(w)
             w.deleteLater()
-        # sim_page aus Stack nehmen falls drin
-        if self._stack.indexOf(self._sim_page) >= 0:
-            self._stack.removeWidget(self._sim_page)
         self._pages.clear()
 
         all_plus_sim = self._notifications + self._sim_notifs
 
         for i, (icon, label, ntype, unread_only) in enumerate(self.CATEGORIES):
-            if ntype == "__sim__":
-                self._pages[label] = self._sim_page
-                self._stack.addWidget(self._sim_page)
-                if i < len(self._sidebar_items):
-                    self._sidebar_items[i].set_count(len(self._sim_notifs))
-                continue
-
             if label == "Aktuell":
                 filtered = nf.get_unread(all_plus_sim)
                 empty    = t("notifications.no_new") + " 🎉"
@@ -454,11 +436,25 @@ class NotificationsPage(QWidget):
             self._stack.setCurrentWidget(page)
 
     def _on_mark_read(self, notif_id: str):
+        # Erst prüfen ob es eine simulierte Test-Nachricht ist (lebt nur
+        # im RAM, wird nie gespeichert) — vorher blieb der "Als gelesen"-
+        # Button bei Test-Nachrichten wirkungslos, weil nf.mark_read()
+        # nur in den echten Nachrichten sucht und diese hier nie findet.
+        for n in self._sim_notifs:
+            if n["id"] == notif_id:
+                n["read"] = True
+                _log.debug(f"Simulierte Nachricht als gelesen markiert: {notif_id}")
+                self._refresh_after_change()
+                return
         self._notifications = nf.mark_read(self._notifications, notif_id)
+        _log.debug(f"Nachricht als gelesen markiert: {notif_id}")
         self._refresh_after_change()
 
     def _mark_all_read(self):
         self._notifications = nf.mark_all_read(self._notifications)
+        for n in self._sim_notifs:
+            n["read"] = True
+        _log.debug("Alle Nachrichten als gelesen markiert")
         self._refresh_after_change()
 
     def _refresh_after_change(self):
@@ -472,6 +468,7 @@ class NotificationsPage(QWidget):
         self.unread_changed.emit(has_unread)
 
     def _on_sim_notif(self, notif: dict):
+        _log.debug(f"Simulierte Test-Nachricht hinzugefügt: {notif.get('id')} ({notif.get('type')})")
         self._sim_notifs.append(notif)
         current = next(
             (lbl for i,(_, lbl, _, _) in enumerate(self.CATEGORIES)
@@ -484,6 +481,7 @@ class NotificationsPage(QWidget):
             self._notifications + self._sim_notifs)
 
     def _on_sim_clear(self):
+        _log.debug(f"Simulierte Test-Nachrichten gelöscht ({len(self._sim_notifs)} Stück)")
         self._sim_notifs.clear()
         current = next(
             (lbl for i,(_, lbl, _, _) in enumerate(self.CATEGORIES)
@@ -495,15 +493,11 @@ class NotificationsPage(QWidget):
         self.all_notifications_changed.emit(self._notifications)
 
     def set_test_mode(self, enabled: bool):
-        """Simulator-Tab ein/ausblenden + bei Deaktivierung alles löschen."""
-        # Simulator Item finden
-        for i, (_, lbl, ntype, _) in enumerate(self.CATEGORIES):
-            if ntype == "__sim__":
-                self._sidebar_items[i].setVisible(enabled)
-                break
+        """Bei Deaktivierung des Test-Modus alle simulierten Nachrichten
+        löschen. Die Simulationsoberfläche selbst lebt nicht mehr hier,
+        sondern als Entwickler-Unterkategorie in den Einstellungen."""
         if not enabled and self._sim_notifs:
-            self._sim_page.clear_all()
-            # _on_sim_clear wird via Signal aufgerufen
+            self._on_sim_clear()
 
     def retranslate(self):
         """Rebuild bei Sprachwechsel."""

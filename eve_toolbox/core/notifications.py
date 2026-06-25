@@ -6,6 +6,9 @@ from datetime import datetime, date
 from pathlib import Path
 from core.i18n import t
 
+from core import logger as _logger
+_log = _logger.get("notifications")
+
 # __file__ = APP_DIR/eve_toolbox/core/notifications.py
 APP_DIR = Path(__file__).resolve().parent.parent.parent
 NOTIF_PATH = APP_DIR / "appdata" / "notifications.json"
@@ -59,8 +62,11 @@ def load() -> list:
         try:
             with open(NOTIF_PATH, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except Exception:
-            pass
+        except Exception as e:
+            _log.error(
+                f"notifications.json konnte nicht gelesen werden ({e}) — "
+                f"wird mit Standard-Nachrichten neu erstellt."
+            )
     # Erste Initialisierung
     save(DEFAULT_NOTIFICATIONS)
     return list(DEFAULT_NOTIFICATIONS)
@@ -72,7 +78,10 @@ def save(notifications: list) -> None:
     # Binärmodus statt Textmodus, aus Konsistenzgründen (kein Sicherheits-
     # risiko hier, da notifications.json nie signiert/gehasht wird).
     text = json.dumps(notifications, indent=2, ensure_ascii=False)
-    NOTIF_PATH.write_bytes(text.encode("utf-8"))
+    try:
+        NOTIF_PATH.write_bytes(text.encode("utf-8"))
+    except Exception as e:
+        _log.error(f"notifications.json konnte nicht gespeichert werden: {e}")
 
 
 def get_unread(notifications: list) -> list:

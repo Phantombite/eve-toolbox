@@ -6,7 +6,7 @@ from core import logger as _logger
 _log = _logger.get("main_window")
 
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
-                              QStackedWidget, QLabel, QApplication)
+                              QStackedWidget, QLabel, QApplication, QPushButton)
 from PyQt6.QtCore import QPoint, QTimer
 from PyQt6.QtGui import QPalette, QColor, QIcon
 from PyQt6.QtCore import Qt
@@ -24,6 +24,7 @@ from core import notifications as nf
 from core import updater
 from core import integrity
 from core import crypto_vault as _vault
+from core.i18n import t
 import os
 
 
@@ -368,6 +369,127 @@ def _make_light_stylesheet():
     s = _cfg.load()
     return make_stylesheet(s.get("faction","caldari"), dark=False)
 
+
+class DetachedTabWindow(QMainWindow):
+    """
+    Eigenständiges Fenster für einen entfixten Tab. Hält nur eine
+    Referenz auf mod_id + das umgezogene Modul-Widget. Schließen
+    dieses Fensters (z.B. über X) entspricht einem vollständigen
+    Schließen des Tabs — kein automatisches Wieder-Andocken.
+
+    Bekommt einen eigenen DetachButton (Andocken-Symbol), da der
+    Button im Hauptfenster physisch im Hauptfenster-Stack bleibt und
+    nicht mit hierher wandert.
+    """
+
+    def __init__(self, mod_id: str, title: str, widget: QWidget, parent=None):
+        super().__init__(parent)
+        self.mod_id = mod_id
+        self.setWindowTitle(title)
+        self.setCentralWidget(widget)
+        self.resize(900, 650)
+
+        self.attach_btn = DetachButton(self)
+        self.attach_btn.set_state(mod_id, True)  # True = zeigt Andocken-Icon
+        self.attach_btn.move(8, 8)
+        self.attach_btn.raise_()
+        self.attach_btn.show()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        margin = 8
+        x = self.width() - self.attach_btn.width() - margin
+        self.attach_btn.move(max(0, x), margin)
+        self.attach_btn.raise_()
+
+    def closeEvent(self, event):
+        # Widget VOR jeder weiteren Qt-internen Verarbeitung explizit
+        # umparenten — verlässlicher als nur setCentralWidget(), da
+        # setParent(None) sofort und unabhängig vom restlichen
+        # closeEvent-Ablauf wirkt. Verhindert, dass Qt das Modul-Widget
+        # mit dem Fenster mitzerstört.
+        w = self.centralWidget()
+        if w is not None:
+            w.setParent(None)
+
+        # Falls attach_tab() bereits das Umparenten + Andocken erledigt
+        # hat (_attaching-Flag), nicht zusätzlich die "Tab komplett
+        # schließen"-Logik auslösen — w ist dann schon im Hauptfenster.
+        if not getattr(self, "_attaching", False):
+            win = self.parent()
+            if win is not None and hasattr(win, "_on_detached_window_closed"):
+                win._on_detached_window_closed(self.mod_id, w)
+        super().closeEvent(event)
+
+
+class DetachButton(QPushButton):
+    """
+    Fester Button-Slot oben rechts über dem Stack. Zeigt je nach
+    Zustand des aktuell aktiven Tabs entweder das Entfix- oder das
+    Andocken-Symbol. Position bleibt immer reserviert (nur die
+    Sichtbarkeit/das Icon wechselt), damit beim Umschalten zwischen
+    Modulen nichts im Layout springt.
+    """
+    DETACH_ICON = "⧉"
+    ATTACH_ICON = "⧈"
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("DetachButton")
+        self.setFixedSize(28, 28)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._mod_id = None
+        self._detached = False
+        self.clicked.connect(self._on_click)
+        self.set_state(None, False)
+
+    def set_state(self, mod_id: str | None, detached: bool):
+        """mod_id=None (z.B. Home) -> Button unsichtbar, Platz bleibt reserviert."""
+        self._mod_id = mod_id
+        self._detached = detached
+        if mod_id is None:
+            self.setVisible(False)
+            return
+        self.setVisible(True)
+        self.setText(self.ATTACH_ICON if detached else self.DETACH_ICON)
+        self.setToolTip(t("tabs.attach") if detached else t("tabs.detach"))
+
+    def _on_click(self):
+        if self._mod_id is None:
+            return
+        win = self.window()
+        # Sitzt der Button in einem DetachedTabWindow, ist self.window()
+        # genau dieses Fenster (hat kein detach_tab) — die eigentliche
+        # MainWindow-Instanz hängt dann an dessen .parent().
+        if not hasattr(win, "detach_tab") and hasattr(win, "parent"):
+            parent_win = win.parent()
+            if parent_win is not None and hasattr(parent_win, "detach_tab"):
+                win = parent_win
+        if not hasattr(win, "detach_tab"):
+            return
+        if self._detached:
+            win.attach_tab(self._mod_id)
+        else:
+            win.detach_tab(self._mod_id)
+
+
+class _ResizableStack(QStackedWidget):
+    """QStackedWidget, das bei Größenänderung einen Callback auslöst —
+    genutzt um den DetachButton-Overlay oben rechts neu zu positionieren."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._on_resize_cb = None
+
+    def set_resize_callback(self, cb):
+        self._on_resize_cb = cb
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self._on_resize_cb:
+            self._on_resize_cb()
+
+
 class MainWindow(QMainWindow):
     def __init__(self, app=None):
         super().__init__()
@@ -385,6 +507,7 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(900, 650)
         self.resize(1200, 750)  # Standard — wird nach show() überschrieben
         self._open_tabs = {}
+        self._detached_tabs = {}   # mod_id -> DetachedTabWindow (entfixte Tabs)
         self._build_ui()
         self._apply_faction()
         self._setup_autolock()
@@ -410,8 +533,15 @@ class MainWindow(QMainWindow):
         self.topbar.open_bell_popup.connect(self._toggle_bell_popup)
         layout.addWidget(self.topbar)
 
-        self.stack = QStackedWidget()
+        self.stack = _ResizableStack()
         layout.addWidget(self.stack)
+
+        # Entfix/Andock-Button — schwebt als Overlay oben rechts über
+        # dem Stack, Position bleibt immer reserviert. Wird bei jedem
+        # Tab-Wechsel über _update_detach_button() aktualisiert.
+        self._detach_btn = DetachButton(self.stack)
+        self.stack.set_resize_callback(self._position_detach_button)
+        self._position_detach_button()
 
         self.home_grid    = HomeGrid(self.settings, self)
         self.home_donut_t = HomeDonut(self.settings, mode="text", parent=self)
@@ -462,6 +592,18 @@ class MainWindow(QMainWindow):
         self._notifications_page.unread_changed.connect(self.topbar.set_unread)
         self._notifications_page.all_notifications_changed.connect(
             self._on_all_notifs_changed)
+
+        # Entwickler-Unterkategorie "Notifications" (Simulator) lebt in
+        # den Einstellungen, schickt simulierte Nachrichten aber an die
+        # echte NotificationsPage, damit sie sich wie echte Nachrichten
+        # verhalten (Glocke, Badge-Zähler, etc.).
+        dev_notif_page = self.settings_page._pages.get(
+            SettingsPage.DEV_SUB_NOTIFICATIONS)
+        if dev_notif_page:
+            dev_notif_page.notification_added.connect(
+                self._notifications_page._on_sim_notif)
+            dev_notif_page.notifications_cleared.connect(
+                self._notifications_page._on_sim_clear)
         # Accounts
 
         self._account_popup = AccountPopup(self.settings, self)
@@ -500,6 +642,7 @@ class MainWindow(QMainWindow):
         layout = self.settings.get("home_layout", "grid")
         self.stack.setCurrentIndex(self._home_idx.get(layout, 0))
         self.topbar.set_active_tab("home")
+        self._update_detach_button(None)
 
 
 
@@ -618,6 +761,20 @@ class MainWindow(QMainWindow):
                 page._load_tokens()
                 page._build()
 
+    def _focus_if_detached(self, mod_id: str) -> bool:
+        """
+        Prüft ob mod_id aktuell als eigenes Fenster offen ist. Falls ja:
+        Fenster nach vorne holen (Singleton-Verhalten — kein zweites
+        Fenster/Tab für dasselbe Modul). Gibt True zurück wenn behandelt,
+        damit die aufrufende _open_*-Methode danach early-return machen kann.
+        """
+        win = self._detached_tabs.get(mod_id)
+        if win is None:
+            return False
+        win.raise_()
+        win.activateWindow()
+        return True
+
     def _close_settings_page(self):
         self.close_tab("__settings__")
         self.topbar.set_settings_active(False)
@@ -626,9 +783,12 @@ class MainWindow(QMainWindow):
         """Öffnet die Meldungsseite als Tab."""
         mod_id = "__notifications__"
         self._notifications_page.update_notifications(self._notifications)
+        if self._focus_if_detached(mod_id):
+            return
         if mod_id in self._open_tabs:
             self.stack.setCurrentIndex(self._open_tabs[mod_id])
             self.topbar.set_active_tab(mod_id)
+            self._update_detach_button(mod_id)
             return
         idx = self.stack.addWidget(self._notifications_page)
         self._open_tabs[mod_id] = idx
@@ -638,13 +798,17 @@ class MainWindow(QMainWindow):
         self.topbar.set_bell_active(True)
         if hasattr(self.topbar, '_panel'):
             self.topbar._panel.hide()
+        self._update_detach_button(mod_id)
 
 
 
     def _open_module(self, mod_id: str):
+        if self._focus_if_detached(mod_id):
+            return
         if mod_id in self._open_tabs:
             self.stack.setCurrentIndex(self._open_tabs[mod_id])
             self.topbar.set_active_tab(mod_id)
+            self._update_detach_button(mod_id)
             return
         widget = self._make_placeholder(mod_id)
         idx = self.stack.addWidget(widget)
@@ -652,6 +816,7 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentIndex(idx)
         self.topbar.add_tab(mod_id)
         self.topbar.set_active_tab(mod_id)
+        self._update_detach_button(mod_id)
 
     def close_tab(self, mod_id: str):
         if mod_id not in self._open_tabs:
@@ -671,6 +836,115 @@ class MainWindow(QMainWindow):
             self.topbar.set_bell_active(False)
         self.topbar.remove_tab(mod_id)
         self._show_home()
+
+    def _tab_title(self, mod_id: str) -> str:
+        if mod_id == "__settings__":
+            return t("nav.settings")
+        if mod_id == "__notifications__":
+            return t("notifications.title")
+        mod = next((m for m in MODULES if m["id"] == mod_id), None)
+        return mod["name"] if mod else mod_id
+
+    def _position_detach_button(self):
+        """Hält den Entfix/Andock-Button oben rechts über dem Stack."""
+        margin = 8
+        x = self.stack.width() - self._detach_btn.width() - margin
+        self._detach_btn.move(max(0, x), margin)
+        self._detach_btn.raise_()
+
+    def _update_detach_button(self, mod_id: str):
+        """Aktualisiert Sichtbarkeit/Icon des Entfix-Buttons für mod_id.
+        mod_id=None (Home) -> Button bleibt unsichtbar, Platz reserviert."""
+        if mod_id is None or mod_id == "home":
+            self._detach_btn.set_state(None, False)
+        else:
+            self._detach_btn.set_state(mod_id, mod_id in self._detached_tabs)
+        self._position_detach_button()
+
+    def detach_tab(self, mod_id: str):
+        """Löst einen offenen Tab aus dem Hauptfenster und zeigt ihn in
+        einem eigenständigen Fenster. Das Modul-Widget bleibt am Leben
+        (im Gegensatz zu close_tab, das es ggf. zerstört)."""
+        if mod_id not in self._open_tabs or mod_id in self._detached_tabs:
+            return
+        idx = self._open_tabs.pop(mod_id)
+        w = self.stack.widget(idx)
+        if w is None:
+            return
+        self.stack.removeWidget(w)
+        w.setVisible(True)
+
+        win = DetachedTabWindow(mod_id, self._tab_title(mod_id), w, parent=self)
+        self._detached_tabs[mod_id] = win
+        win.show()
+
+        # Tab-Reiter verschwindet komplett aus der Topbar solange entfixt
+        self.topbar.remove_tab(mod_id)
+        if mod_id == "__settings__":
+            self.topbar.set_settings_active(False)
+        elif mod_id == "__notifications__":
+            self.topbar.set_bell_active(False)
+        self._show_home()
+
+    def attach_tab(self, mod_id: str):
+        """Holt ein entfixtes Modul zurück ins Hauptfenster als normalen Tab."""
+        win = self._detached_tabs.pop(mod_id, None)
+        if win is None:
+            return
+        w = win.centralWidget()
+        if w is not None:
+            w.setParent(None)  # sofort umparenten, bevor win.close() läuft
+        win._attaching = True  # verhindert dass closeEvent _on_detached_window_closed nochmal aufruft
+        win.close()
+
+        idx = self.stack.addWidget(w)
+        self._open_tabs[mod_id] = idx
+        self.stack.setCurrentIndex(idx)
+
+        if mod_id == "__settings__":
+            self.topbar.add_settings_tab()
+            self.topbar.set_settings_active(True)
+        elif mod_id == "__notifications__":
+            self.topbar.add_notifications_tab()
+            self.topbar.set_bell_active(True)
+        else:
+            self.topbar.add_tab(mod_id)
+        self.topbar.set_active_tab(mod_id)
+        self._update_detach_button(mod_id)
+
+    def _current_active_mod_id(self) -> str | None:
+        """Ermittelt, welches Modul/Tab im Stack aktuell sichtbar ist —
+        None wenn es Home ist. Wird gebraucht für Ereignisse, die NICHT
+        selbst zu einem bestimmten Tab navigieren (z.B. Schließen eines
+        entfixten Fensters über X), damit der Entfix-Button danach das
+        TATSÄCHLICH sichtbare Tab widerspiegelt, statt blind von Home
+        auszugehen."""
+        current_idx = self.stack.currentIndex()
+        if current_idx in self._home_idx.values():
+            return None
+        for mod_id, idx in self._open_tabs.items():
+            if idx == current_idx:
+                return mod_id
+        return None
+
+    def _on_detached_window_closed(self, mod_id: str, w: QWidget | None):
+        """Wird von DetachedTabWindow.closeEvent aufgerufen — Schließen
+        eines losgelösten Fensters (z.B. über X) entspricht einem
+        vollständigen Schließen des Tabs (kein Wieder-Andocken)."""
+        win = self._detached_tabs.pop(mod_id, None)
+        if win is None:
+            return  # bereits über attach_tab() entfernt
+        if mod_id not in ("__settings__", "__notifications__"):
+            if w is not None:
+                w.deleteLater()
+        else:
+            if w is not None:
+                w.setVisible(False)
+        if mod_id == "__settings__":
+            self.topbar.set_settings_active(False)
+        elif mod_id == "__notifications__":
+            self.topbar.set_bell_active(False)
+        self._update_detach_button(self._current_active_mod_id())
 
     def _make_placeholder(self, mod_id: str) -> QWidget:
         mod  = next((m for m in MODULES if m["id"] == mod_id), None)
@@ -700,6 +974,7 @@ class MainWindow(QMainWindow):
         self._apply_faction()
 
     def _on_dev_mode(self, enabled: bool):
+        _log.info(f"Entwicklermodus: {'aktiviert' if enabled else 'deaktiviert'}")
         self.settings["dev_mode"] = enabled
         if not enabled:
             self.settings["test_mode"] = False
@@ -707,37 +982,50 @@ class MainWindow(QMainWindow):
         self._refresh_homes()
 
     def _on_layout(self, layout: str):
+        _log.debug(f"Home-Layout geändert: {layout}")
         self.settings["home_layout"] = layout
         cfg.save(self.settings)
         self._show_home()
 
     def _open_settings_page(self):
         _log.debug("Einstellungsseite geöffnet")
-        self.settings_page.sync()
+        mod_id = "__settings__"
+        if self._focus_if_detached(mod_id):
+            self.settings_page.sync()   # Auch wenn als Fenster offen
+            return
         if hasattr(self.topbar, '_panel'):
             self.topbar._panel.hide()
         self.topbar.set_settings_active(True)
         # Als Tab öffnen wie ein Modul
-        mod_id = "__settings__"
         if mod_id in self._open_tabs:
             self.stack.setCurrentIndex(self._open_tabs[mod_id])
             self.topbar.set_active_tab(mod_id)
             self.settings_page.sync()   # Auch wenn Tab bereits offen ist
+            self._update_detach_button(mod_id)
             return
+        self.settings_page.sync()
         idx = self.stack.addWidget(self.settings_page)
         self._open_tabs[mod_id] = idx
         self.stack.setCurrentIndex(idx)
         self.topbar.add_settings_tab()
         self.topbar.set_active_tab(mod_id)
+        self._update_detach_button(mod_id)
 
     def _on_test_mode(self, enabled: bool):
+        _log.info(f"Testmodus: {'aktiviert' if enabled else 'deaktiviert'}")
         self.settings["test_mode"] = enabled
         cfg.save(self.settings)
         self._refresh_homes()
         if hasattr(self, "_notifications_page"):
             self._notifications_page.set_test_mode(enabled)
+        if not enabled:
+            dev_notif_page = self.settings_page._pages.get(
+                SettingsPage.DEV_SUB_NOTIFICATIONS)
+            if dev_notif_page:
+                dev_notif_page._sim_page.clear_all()
 
     def _on_window_size(self, w: int, h: int):
+        _log.debug(f"Fenstergröße geändert: {w}x{h}")
         self.settings["window_width"]  = w
         self.settings["window_height"] = h
         cfg.save(self.settings)
@@ -861,16 +1149,22 @@ class MainWindow(QMainWindow):
 
     def _on_lock_requested(self):
         """'Jetzt sperren' Button in den Sicherheits-Einstellungen."""
+        _log.info("Manuelle Sperrung angefordert ('Jetzt sperren')")
         if hasattr(self, "topbar"):
             self.topbar.lock_now()
         self._autolock_timer.stop()
 
     def _on_autolock_changed(self, minutes: int):
+        _log.info(
+            f"Auto-Lock-Zeit geändert: "
+            + ("Niemals" if minutes == 0 else f"{minutes} Minuten")
+        )
         self.settings["autolock_minutes"] = minutes
         cfg.save(self.settings)
         self._restart_autolock_timer()
 
     def _on_lock_on_minimize_changed(self, enabled: bool):
+        _log.info(f"'Sperren beim Minimieren': {'aktiviert' if enabled else 'deaktiviert'}")
         self.settings["lock_on_minimize"] = enabled
         cfg.save(self.settings)
 
@@ -893,10 +1187,12 @@ class MainWindow(QMainWindow):
         super().changeEvent(event)
 
     def _on_delete_once_changed(self, enabled: bool):
+        _log.warning(f"'Einmalig löschen beim Beenden': {'AKTIVIERT' if enabled else 'deaktiviert'}")
         self.settings["delete_once_on_exit"] = enabled
         cfg.save(self.settings)
 
     def _on_delete_always_changed(self, enabled: bool):
+        _log.warning(f"'Immer löschen beim Beenden': {'AKTIVIERT' if enabled else 'deaktiviert'}")
         self.settings["delete_always_on_exit"] = enabled
         cfg.save(self.settings)
 

@@ -93,6 +93,13 @@ class IntegrityResult:
         self.missing_files   = []   # Dateien, die lokal fehlen
         self.corrupted_files = []   # Dateien, deren Hash nicht passt
         self.error           = None
+        # Bereits signaturgeprüfte erwartete Hashes (rel_key -> sha256-hex).
+        # Wird an core.updater.repair_files() weitergegeben, damit jede bei
+        # einer Reparatur neu heruntergeladene Datei NACH dem Download noch
+        # einmal gegen genau diesen (vertrauenswürdigen) Hash geprüft wird —
+        # die Signaturprüfung von checksums.json allein garantiert nicht,
+        # dass der einzelne Download während der Reparatur unverändert ist.
+        self.checksums       = {}
 
     @property
     def needs_repair(self) -> bool:
@@ -281,6 +288,8 @@ def mini_check(progress_callback=None) -> IntegrityResult:
         _progress(100, "Offline" if result.offline else "Fehler")
         return result
 
+    result.checksums = checksums
+
     for rel_key in CRITICAL_FILES:
         result.files_checked += 1
         local_path = APP_DIR / rel_key.replace("/", os.sep)
@@ -346,6 +355,8 @@ def run_check(progress_callback=None) -> IntegrityResult:
             _log.warning("Offline oder Signatur ungültig — Integritätscheck nicht möglich, fahre fort")
         _progress(100, "Offline — Check übersprungen" if result.offline else "Fehler")
         return result
+
+    result.checksums = checksums
 
     # ── Schritt 3: Dateien prüfen ─────────────────────────────
     _progress(20, "Prüfe Dateien...")

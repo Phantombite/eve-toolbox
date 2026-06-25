@@ -49,11 +49,14 @@ def load() -> dict:
             data["edit_locked"] = True
             data["dev_mode"]    = False
             data["test_mode"]   = False
-            i18n.set_language(data.get("language", "de"))
+            i18n.set_language(data.get("language", DEFAULTS["language"]))
             return data
-        except Exception:
-            pass
-    i18n.set_language(DEFAULTS.get("language", "de"))
+        except Exception as e:
+            _log.error(
+                f"settings.json konnte nicht gelesen werden ({e}) — "
+                f"Einstellungen werden auf Standardwerte zurückgesetzt."
+            )
+    i18n.set_language(DEFAULTS["language"])
     return dict(DEFAULTS)
 
 
@@ -65,4 +68,7 @@ def save(settings: dict) -> None:
     # JSON-Schreibvorgängen im Projekt korrigiert (siehe core.integrity.
     # generate_checksums() für den eigentlichen Hintergrund des Musters).
     text = json.dumps(settings, indent=2, ensure_ascii=False)
-    SETTINGS_PATH.write_bytes(text.encode("utf-8"))
+    try:
+        SETTINGS_PATH.write_bytes(text.encode("utf-8"))
+    except Exception as e:
+        _log.error(f"settings.json konnte nicht gespeichert werden: {e}")

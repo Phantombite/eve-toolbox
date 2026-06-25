@@ -27,7 +27,7 @@ class NotifCard(QWidget):
         # Header: Icon + Typ + Zeit + Gelesen-Status
         h_row = QHBoxLayout()
         icon = nf.TYPE_ICONS.get(notif.get("type","system"), "ℹ")
-        type_label = nf.TYPE_LABELS.get(notif.get("type","system"), "Info")
+        type_label = nf.get_type_labels().get(notif.get("type","system"), "Info")
         read = notif.get("read", False)
 
         icon_lbl = QLabel(f"{icon}  {type_label}")

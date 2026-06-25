@@ -65,17 +65,16 @@ class _CallbackHandler(BaseHTTPRequestHandler):
     """Fängt den EVE SSO Callback ab."""
 
     def do_GET(self):
-        import time as _time
         parsed = urllib.parse.urlparse(self.path)
         params = urllib.parse.parse_qs(parsed.query)
 
         code  = params.get("code",  [None])[0]
         state = params.get("state", [None])[0]
-        print(f"[{_time.strftime('%H:%M:%S')}][ESI] Callback empfangen — code={'JA' if code else 'NEIN'} state={'JA' if state else 'NEIN'}", flush=True)
+        _log.debug(f"Callback empfangen — code={'JA' if code else 'NEIN'} state={'JA' if state else 'NEIN'}")
 
         # Nur echte Login-Callbacks verarbeiten (mit code Parameter)
         if not code:
-            print(f"[{_time.strftime('%H:%M:%S')}][ESI] Leerer Callback ignoriert (Favicon/Prefetch?)", flush=True)
+            _log.debug("Leerer Callback ignoriert (Favicon/Prefetch?)")
             self.send_response(204)  # No Content
             self.end_headers()
             return
@@ -262,18 +261,18 @@ def login(on_success=None, on_error=None):
 
     # Alten Server sauber beenden
     if _active_server is not None:
-        print(f"[{time.strftime('%H:%M:%S')}][ESI] Schließe alten Server für Login {_current_login_id}", flush=True)
+        _log.debug(f"Schließe alten Server für Login {_current_login_id}")
         try:
             _active_server._done = True
             _active_server.server_close()
         except Exception as e:
-            print(f"[{time.strftime('%H:%M:%S')}][ESI] Fehler beim Schließen: {e}", flush=True)
+            _log.warning(f"Fehler beim Schließen: {e}")
         _active_server = None
 
     # Neue Login-ID — alle älteren Callbacks werden ignoriert
     _current_login_id += 1
     my_login_id = _current_login_id
-    print(f"[{time.strftime('%H:%M:%S')}][ESI] Login gestartet — ID {my_login_id}", flush=True)
+    _log.info(f"Login gestartet — ID {my_login_id}")
 
     verifier, challenge = _generate_pkce()
     state               = secrets.token_urlsafe(16)
@@ -287,14 +286,14 @@ def login(on_success=None, on_error=None):
             server = HTTPServer(("localhost", ESI_LOCAL_PORT), _CallbackHandler)
             server.socket.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
             _active_server = server
-            print(f"[{time.strftime('%H:%M:%S')}][ESI] Server gestartet auf Port {ESI_LOCAL_PORT} (Versuch {attempt+1})", flush=True)
+            _log.debug(f"Server gestartet auf Port {ESI_LOCAL_PORT} (Versuch {attempt+1})")
             break
         except OSError as e:
-            print(f"[{time.strftime('%H:%M:%S')}][ESI] Port noch belegt, warte... ({attempt+1}/30) — {e}", flush=True)
+            _log.debug(f"Port noch belegt, warte... ({attempt+1}/30) — {e}")
             time.sleep(0.1)
             server = None
     if server is None:
-        print(f"[{time.strftime('%H:%M:%S')}][ESI] FEHLER: Port {ESI_LOCAL_PORT} nicht verfügbar", flush=True)
+        _log.error(f"Port {ESI_LOCAL_PORT} nicht verfügbar")
         if on_error:
             on_error(f"Port {ESI_LOCAL_PORT} nicht verfügbar")
         return
@@ -303,27 +302,27 @@ def login(on_success=None, on_error=None):
     server._done      = False
 
     def _serve():
-        print(f"[{time.strftime('%H:%M:%S')}][ESI] Server-Thread {my_login_id} gestartet", flush=True)
+        _log.debug(f"Server-Thread {my_login_id} gestartet")
         while not server._done:
             try:
                 server.handle_request()
             except Exception as e:
-                print(f"[{time.strftime('%H:%M:%S')}][ESI] Server-Thread {my_login_id} Exception: {e}", flush=True)
+                _log.warning(f"Server-Thread {my_login_id} Exception: {e}")
                 break
-        print(f"[{time.strftime('%H:%M:%S')}][ESI] Server-Thread {my_login_id} beendet (done={server._done})", flush=True)
+        _log.debug(f"Server-Thread {my_login_id} beendet (done={server._done})")
 
     t = threading.Thread(target=_serve, daemon=True)
     t.start()
 
-    print(f"[{time.strftime('%H:%M:%S')}][ESI] Öffne Browser für Login {my_login_id}", flush=True)
+    _log.info(f"Öffne Browser für Login {my_login_id}")
     webbrowser.open_new_tab(auth_url)
 
     # Warten bis Callback kommt (max 30 Sekunden)
-    print(f"[{time.strftime('%H:%M:%S')}][ESI] Warte auf Callback für Login {my_login_id}...", flush=True)
+    _log.debug(f"Warte auf Callback für Login {my_login_id}...")
     timeout = time.time() + 30
     while not server._done and time.time() < timeout:
         time.sleep(0.1)
-    print(f"[{time.strftime('%H:%M:%S')}][ESI] Warten beendet — done={server._done} code={'JA' if server.auth_code else 'NEIN'}", flush=True)
+    _log.debug(f"Warten beendet — done={server._done} code={'JA' if server.auth_code else 'NEIN'}")
 
     # Nur diesen Server schließen wenn er noch der aktive ist
     if _active_server is server:
@@ -332,23 +331,23 @@ def login(on_success=None, on_error=None):
         except Exception:
             pass
         _active_server = None
-        print(f"[{time.strftime('%H:%M:%S')}][ESI] Server für Login {my_login_id} geschlossen", flush=True)
+        _log.debug(f"Server für Login {my_login_id} geschlossen")
     else:
-        print(f"[{time.strftime('%H:%M:%S')}][ESI] Server für Login {my_login_id} wurde bereits von neuem Login übernommen", flush=True)
+        _log.debug(f"Server für Login {my_login_id} wurde bereits von neuem Login übernommen")
         try:
             server.server_close()
         except Exception:
             pass
 
     if not server.auth_code:
-        print(f"[{time.strftime('%H:%M:%S')}][ESI] Login {my_login_id} abgebrochen oder Timeout", flush=True)
+        _log.info(f"Login {my_login_id} abgebrochen oder Timeout")
         if on_error:
             on_error("Login abgebrochen oder Timeout.")
         return
 
     # Prüfen ob dieser Login noch der aktuellste ist
     if my_login_id != _current_login_id:
-        print(f"[{time.strftime('%H:%M:%S')}][ESI] Login {my_login_id} veraltet — ignoriert (aktuell: {_current_login_id})", flush=True)
+        _log.debug(f"Login {my_login_id} veraltet — ignoriert (aktuell: {_current_login_id})")
         return
 
     # State prüfen
@@ -379,6 +378,6 @@ def login(on_success=None, on_error=None):
     # Speichern
     save_token(char_info["id"], tokens, char_info)
 
-    print(f"[{time.strftime('%H:%M:%S')}][ESI] Login {my_login_id} erfolgreich: {char_info.get('name')}", flush=True)
+    _log.info(f"Login {my_login_id} erfolgreich: {char_info.get('name')}")
     if on_success:
         on_success(char_info)

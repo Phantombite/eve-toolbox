@@ -118,7 +118,11 @@ class AccountPopup(QWidget):
         self.reload()
 
     def _load_accounts(self) -> list:
-        """Lädt alle Charaktere direkt aus Token-Dateien."""
+        """Lädt alle Charaktere direkt aus Token-Dateien. Merkt sich
+        zusätzlich, ob die leere Liste an einem gesperrten Vault liegt
+        oder wirklich an fehlenden Accounts (siehe _refresh())."""
+        from core import crypto_vault as _vault_mod
+        self._vault_locked = not _vault_mod.is_unlocked()
         try:
             tokens = esi_mod.load_tokens()
         except Exception:
@@ -249,7 +253,11 @@ class AccountPopup(QWidget):
         faction = self._settings.get("faction", "caldari")
 
         if not self._accounts:
-            empty = QLabel("  Noch kein Account eingeloggt.")
+            if getattr(self, "_vault_locked", False):
+                empty = QLabel("  🔒  " + t("security.unlock_hint"))
+            else:
+                empty = QLabel("  Noch kein Account eingeloggt.")
+            empty.setWordWrap(True)
             empty.setStyleSheet("font-size: 10px; color: #888; padding: 8px;")
             self._list_lay.addWidget(empty)
         else:
