@@ -22,7 +22,19 @@ ESI_LOCAL_CB   = f"http://localhost:{ESI_LOCAL_PORT}/callback"
 # SSO Endpoints
 ESI_AUTH_URL   = "https://login.eveonline.com/v2/oauth/authorize"
 ESI_TOKEN_URL  = "https://login.eveonline.com/v2/oauth/token"
-ESI_BASE_URL   = "https://esi.evetech.net/latest"
+# Kein "/latest" mehr im Pfad — ESI versioniert seit 2025 nicht mehr über
+# die URL, sondern ausschließlich über den X-Compatibility-Date Header
+# (siehe ESI_COMPATIBILITY_DATE unten). Die alten /latest/-Pfade laufen
+# laut CCP zwar noch "auf absehbare Zeit" weiter, aber ohne den Header
+# bekäme man trotzdem nur das älteste verfügbare Verhalten.
+ESI_BASE_URL   = "https://esi.evetech.net"
+
+# Pflicht-Header bei JEDER Anfrage an esi.evetech.net (nicht bei den
+# SSO-Endpunkten oben, die sind ein komplett getrenntes System ohne
+# dieses Konzept). Ersetzt die frühere /latest/-Versionierung in der
+# URL. Muss von Zeit zu Zeit aktualisiert werden, sobald CCP neue
+# Compatibility-Dates veröffentlicht — siehe /meta/compatibility-dates.
+ESI_COMPATIBILITY_DATE = "2026-06-09"
 
 # ── Scopes pro Modul ──────────────────────────────────────────
 # Neue Scopes hier eintragen wenn das jeweilige Modul aktiviert wird.

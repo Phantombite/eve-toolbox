@@ -12,7 +12,7 @@ from pathlib import Path
 
 ASSETS = Path(__file__).resolve().parent.parent / "assets" / "icons"
 
-from core.config import APP_NAME, FACTIONS, MODULES
+from core.config import APP_NAME, FACTIONS, MODULES, get_subfunction, get_module_name
 from core.i18n import t
 from ui.settings_panel import SettingsPanel
 from ui.account_popup import AccountPopup
@@ -449,8 +449,13 @@ class Topbar(QWidget):
     def add_tab(self, mod_id: str):
         if mod_id in self._tabs:
             return
-        mod  = next((m for m in MODULES if m["id"] == mod_id), None)
-        name = mod["name"] if mod else mod_id
+        if "::" in mod_id:
+            parent_id, sub_id = mod_id.split("::", 1)
+            sub = get_subfunction(parent_id, sub_id)
+            name = sub["name"] if sub else mod_id
+        else:
+            mod  = next((m for m in MODULES if m["id"] == mod_id), None)
+            name = get_module_name(mod_id) if mod else mod_id
 
         btn = QPushButton(name)
         btn.setObjectName("Tab")

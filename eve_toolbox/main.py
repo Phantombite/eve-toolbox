@@ -140,6 +140,42 @@ def main():
         splash.set_status(t("splash.initializing"), 5)
         app.processEvents()
 
+        # ── Update der Spieldatenbank (items/universe/characters.sqlite) ──
+        # Läuft IMMER, auch im Dev-Modus (EVE_SKIP_CHECKS) — bewusst VOR
+        # der EVE_SKIP_CHECKS-Prüfung platziert, damit dieser frühe
+        # return (siehe unten) den Aufruf nicht überspringen kann.
+        # Begründung (Dragnax-Entscheidung): die SPIELDATEN (Item-Werte,
+        # Blueprint-Materialmengen, Skill-Anforderungen) sollen beim
+        # Entwickeln IMMER aktuell sein, im Gegensatz zum PROGRAMM-
+        # Update/Integritätscheck (core.updater/core.integrity), der im
+        # Dev-Modus bewusst übersprungen wird, um nicht bei jedem
+        # lokalen Start gegen GitHub zu validieren. Spieldaten und
+        # Programm-Code sind zwei unabhängige Update-Mechanismen
+        # (siehe core/data/db_updater.py Modul-Docstring).
+        from core.data import db_updater as _db_updater
+
+        # Splash-Screen zeigt nur eine einfache, stabile Nachricht ("was
+        # macht die App gerade") — die technischen Detail-Nachrichten von
+        # db_updater (welche Datei wird geladen, welche Datenbank gebaut,
+        # ...) sind für den Nutzer nicht relevant und landen bereits
+        # vollständig im Log (siehe core/data/db_updater.py, jeder Schritt
+        # ruft _log.info()). Der progress-Callback hier wird daher
+        # bewusst NICHT an splash.set_status() durchgereicht.
+        def _db_update_progress(message: str):
+            app.processEvents()
+
+        log.info("Prüfe Spieldatenbank-Update...")
+        splash.set_status(t("splash.updating_database"), 6)
+        app.processEvents()
+        db_ok = _db_updater.check_and_update(progress=_db_update_progress)
+        if not db_ok:
+            log.warning(
+                "Spieldatenbank (items.sqlite) konnte nicht aufgebaut werden "
+                "(z.B. erster Start ohne Internetverbindung) — Module, die "
+                "darauf aufbauen (Markt, Industrie, ...), sind vorübergehend "
+                "nicht verfügbar. Alle anderen Programmteile funktionieren normal."
+            )
+
         # ── Dev: Checks überspringen — NUR mit gültigem Dev-Token ──
         # EVE_SKIP_CHECKS wird von debug.bat gesetzt, damit lokale
         # Entwicklung nicht bei jedem Start gegen GitHub validiert wird.

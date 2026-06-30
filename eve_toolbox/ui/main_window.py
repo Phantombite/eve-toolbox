@@ -10,7 +10,8 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
 from PyQt6.QtCore import QPoint, QTimer
 from PyQt6.QtGui import QPalette, QColor, QIcon
 from PyQt6.QtCore import Qt
-from core.config import APP_NAME, APP_VERSION, MODULES, FACTIONS
+from core.config import (APP_NAME, APP_VERSION, MODULES, FACTIONS, MODULE_SUBFUNCTIONS,
+                          get_subfunction, get_module_name)
 from core import settings as cfg
 from ui.topbar import Topbar
 from ui.home_grid import HomeGrid
@@ -544,16 +545,19 @@ class MainWindow(QMainWindow):
         self._position_detach_button()
 
         self.home_grid    = HomeGrid(self.settings, self)
-        self.home_donut_t = HomeDonut(self.settings, mode="text", parent=self)
-        self.home_donut_i = HomeDonut(self.settings, mode="icon", parent=self)
+        self.home_donut = HomeDonut(self.settings, parent=self)
 
         self._home_idx = {
             "grid":       self.stack.addWidget(self.home_grid),
-            "donut_text": self.stack.addWidget(self.home_donut_t),
-            "donut_icon": self.stack.addWidget(self.home_donut_i),
+            "donut_icon": self.stack.addWidget(self.home_donut),
         }
-        for home in [self.home_grid, self.home_donut_t, self.home_donut_i]:
+        for home in [self.home_grid, self.home_donut]:
             home.module_opened.connect(self._open_module)
+        # subfunction_opened: beide Layouts (Donut-Außenring, Grid-
+        # Kartenrückseite) navigieren über Unterfunktionen, nicht mehr
+        # über Klick auf die Hauptkategorie selbst.
+        for home in [self.home_grid, self.home_donut]:
+            home.subfunction_opened.connect(self._open_subfunction)
 
         # Einstellungsseite (wird on-demand als Tab geöffnet)
         self.settings_page = SettingsPage(self.settings)
@@ -818,6 +822,28 @@ class MainWindow(QMainWindow):
         self.topbar.set_active_tab(mod_id)
         self._update_detach_button(mod_id)
 
+    def _open_subfunction(self, mod_id: str, sub_id: str):
+        """Öffnet eine Unterfunktion (Außenring-Slot) als Tab. Nutzt den
+        gleichen _open_tabs/stack/topbar-Mechanismus wie _open_module,
+        aber mit einem zusammengesetzten Tab-Key ('modul::sub'), damit
+        z.B. 'markt::markt_uebersicht' unabhängig von einem eventuellen
+        eigenen Tab für 'markt' selbst verwaltet wird."""
+        tab_id = f"{mod_id}::{sub_id}"
+        if self._focus_if_detached(tab_id):
+            return
+        if tab_id in self._open_tabs:
+            self.stack.setCurrentIndex(self._open_tabs[tab_id])
+            self.topbar.set_active_tab(tab_id)
+            self._update_detach_button(tab_id)
+            return
+        widget = self._make_sub_placeholder(mod_id, sub_id)
+        idx = self.stack.addWidget(widget)
+        self._open_tabs[tab_id] = idx
+        self.stack.setCurrentIndex(idx)
+        self.topbar.add_tab(tab_id)
+        self.topbar.set_active_tab(tab_id)
+        self._update_detach_button(tab_id)
+
     def close_tab(self, mod_id: str):
         if mod_id not in self._open_tabs:
             return
@@ -842,8 +868,14 @@ class MainWindow(QMainWindow):
             return t("nav.settings")
         if mod_id == "__notifications__":
             return t("notifications.title")
+        if "::" in mod_id:
+            parent_id, sub_id = mod_id.split("::", 1)
+            sub = get_subfunction(parent_id, sub_id)
+            if sub:
+                return sub["name"]
+            return mod_id
         mod = next((m for m in MODULES if m["id"] == mod_id), None)
-        return mod["name"] if mod else mod_id
+        return get_module_name(mod_id) if mod else mod_id
 
     def _position_detach_button(self):
         """Hält den Entfix/Andock-Button oben rechts über dem Stack."""
@@ -948,15 +980,33 @@ class MainWindow(QMainWindow):
 
     def _make_placeholder(self, mod_id: str) -> QWidget:
         mod  = next((m for m in MODULES if m["id"] == mod_id), None)
-        name = mod["name"] if mod else mod_id
+        name = get_module_name(mod_id) if mod else mod_id
         status = mod.get("status", "geplant") if mod else "geplant"
         icons = {"assets":"📦","markt":"📊","skills":"🧠","intel":"📡",
                  "pi":"🌿","industrie":"🔨","routen":"🗺","wallet":"💰"}
-        status_text = {
-            "fertig":      "Dieses Modul ist fertig — wird bald freigeschaltet.",
-            "entwicklung": "Dieses Modul ist in Entwicklung.",
-            "geplant":     "Dieses Modul ist geplant und noch nicht begonnen.",
-        }.get(status, "In Entwicklung.")
+        status_text = t(f"modules.status_module.{status}")
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl = QLabel(f"{icons.get(mod_id,'🚧')}  {name}\n\n{status_text}")
+        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl.setStyleSheet("font-size: 15px; color: #888;")
+        lay.addWidget(lbl)
+        return w
+
+    def _make_sub_placeholder(self, mod_id: str, sub_id: str) -> QWidget:
+        """Placeholder für eine Unterfunktion (Außenring-Slot). Gleiches
+        Aussehen wie _make_placeholder, aber Name/Status kommen aus dem
+        Hauptmodul (für Icon/Status — eine Unterfunktion hat noch keinen
+        eigenen Status) und der Anzeigename aus MODULE_SUBFUNCTIONS. Wird
+        ersetzt, sobald die Unterfunktion eine echte UI-Seite bekommt."""
+        mod  = next((m for m in MODULES if m["id"] == mod_id), None)
+        sub  = get_subfunction(mod_id, sub_id)
+        name = sub["name"] if sub else sub_id
+        status = mod.get("status", "geplant") if mod else "geplant"
+        icons = {"assets":"📦","markt":"📊","skills":"🧠","intel":"📡",
+                 "pi":"🌿","industrie":"🔨","routen":"🗺","wallet":"💰"}
+        status_text = t(f"modules.status_sub.{status}")
         w = QWidget()
         lay = QVBoxLayout(w)
         lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1035,7 +1085,7 @@ class MainWindow(QMainWindow):
         """Alle Home-Screens nach Modus-Wechsel aktualisieren."""
         dev  = self.settings.get("dev_mode", False)
         test = self.settings.get("test_mode", False)
-        for home in [self.home_grid, self.home_donut_t, self.home_donut_i]:
+        for home in [self.home_grid, self.home_donut]:
             home.set_dev_mode(dev)
             if hasattr(home, "set_test_mode"):
                 home.set_test_mode(test)
@@ -1065,14 +1115,14 @@ class MainWindow(QMainWindow):
             if hasattr(self._notifications_page, "retranslate"):
                 self._notifications_page.retranslate()
         # Home-Screens
-        for home in [self.home_grid, self.home_donut_t, self.home_donut_i]:
+        for home in [self.home_grid, self.home_donut]:
             if hasattr(home, "retranslate"):
                 home.retranslate()
 
     def _on_edit_mode(self, enabled: bool):
         self.settings["edit_locked"] = not enabled
         cfg.save(self.settings)
-        for home in [self.home_grid, self.home_donut_t, self.home_donut_i]:
+        for home in [self.home_grid, self.home_donut]:
             home.set_edit_mode(enabled)
 
     def _apply_stylesheet(self):
@@ -1091,7 +1141,7 @@ class MainWindow(QMainWindow):
 
     def _apply_faction(self):
         faction = self.settings.get("faction", "caldari")
-        for home in [self.home_grid, self.home_donut_t, self.home_donut_i]:
+        for home in [self.home_grid, self.home_donut]:
             home.set_faction(faction)
         self.topbar.set_faction(faction)
         if hasattr(self, "settings_page"):

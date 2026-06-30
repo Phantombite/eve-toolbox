@@ -27,35 +27,53 @@
   "modules": {
     "assets": {
       "name": "Assets",
-      "desc": "Alle Items aller Chars & Corps"
+      "desc": "Alle Items aller Chars & Corps",
+      "sub": {}
     },
     "markt": {
       "name": "Markt",
-      "desc": "Preise, Orders & Handel"
+      "desc": "Preise, Orders & Handel",
+      "sub": {}
     },
     "skills": {
       "name": "Skills",
-      "desc": "Skill-Planung offline"
+      "desc": "Skill-Planung offline",
+      "sub": {}
     },
     "intel": {
       "name": "Intel",
-      "desc": "Echtzeit Systemüberwachung"
+      "desc": "Echtzeit Systemüberwachung",
+      "sub": {}
     },
     "pi": {
       "name": "Planetary (PI)",
-      "desc": "Kolonien & Extraktion"
+      "desc": "Kolonien & Extraktion",
+      "sub": {}
     },
     "industrie": {
       "name": "Industrie",
-      "desc": "Blueprints & Kalkulation"
+      "desc": "Blueprints & Kalkulation",
+      "sub": {}
     },
     "routen": {
       "name": "Routen",
-      "desc": "Sichere Pfade & Planung"
+      "desc": "Sichere Pfade & Planung",
+      "sub": {}
     },
     "wallet": {
       "name": "Wallet",
-      "desc": "ISK, Transaktionen & Journal"
+      "desc": "ISK, Transaktionen & Journal",
+      "sub": {}
+    },
+    "status_module": {
+      "fertig": "Dieses Modul ist fertig — wird bald freigeschaltet.",
+      "entwicklung": "Dieses Modul ist in Entwicklung.",
+      "geplant": "Dieses Modul ist geplant und noch nicht begonnen."
+    },
+    "status_sub": {
+      "fertig": "Diese Funktion ist fertig — wird bald freigeschaltet.",
+      "entwicklung": "Diese Funktion ist in Entwicklung.",
+      "geplant": "Diese Funktion ist geplant und noch nicht begonnen."
     }
   },
   "settings": {
@@ -108,14 +126,13 @@
     "dev_mode": "Entwicklermodus",
     "dev_mode_desc": "Schaltet Module frei die als 'In Entwicklung' markiert sind",
     "test_mode": "Testmodus",
-    "test_mode_desc": "Hebt ALLE Sperren auf — auch geplante Module. Nur verfügbar wenn Entwicklermodus aktiv ist.",
+    "test_mode_desc": "Hebt ALLE Sperren auf. Nur wenn Entwicklermodus aktiv.",
     "dev_sub_notifications": "Notifications",
     "emergency_rollback": "Notfall-Rollback (nur mit gültigem Dev-Token sichtbar)",
     "rollback_to_backup": "Auf letztes Backup zurücksetzen",
     "rollback_button": "Zurücksetzen",
     "backup_available_local": "Lokales Backup vorhanden: v{version}",
     "no_backup_local": "Kein lokales Backup vorhanden",
-    "test_mode_desc": "Hebt ALLE Sperren auf. Nur wenn Entwicklermodus aktiv.",
     "updates": "Updates",
     "installed_version": "Installierte Version",
     "latest_version": "Neueste Version",
@@ -131,7 +148,10 @@
     "reset_btn": "Zurücksetzen",
     "reset_btn_danger": "⚠  Zurücksetzen",
     "reset_all_btn": "⚠  Alles zurücksetzen",
-    "back": "✕  Zurück"
+    "back": "✕  Zurück",
+    "layout_grid": "Rechteck Layout",
+    "layout_donut": "Rundes Layout",
+    "func_info_explainer": "Hier siehst du den Status aller Module.\nFertig = produktionsbereit  ·  In Entwicklung = im Dev-Modus aktiv  ·  Geplant = noch nicht begonnen"
   },
   "notifications": {
     "title": "Meldungen",
@@ -165,6 +185,7 @@
   "splash": {
     "loading": "Lade EVE Toolbox...",
     "initializing": "Initialisiere...",
+    "updating_database": "Aktualisiere Datenbank...",
     "checking_updates": "Suche nach Updates...",
     "no_update": "Kein Update gefunden.",
     "update_found": "Update v{version} gefunden!",

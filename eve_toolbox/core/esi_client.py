@@ -22,6 +22,9 @@ beliebige ESI-Endpunkte, mit:
   - klare ESIError-Exceptions statt stillem {}/[]-Rückgabewert, damit
     Aufrufer zwischen "keine Daten" und "Anfrage fehlgeschlagen"
     unterscheiden können
+  - schickt automatisch den seit 2025 verpflichtenden X-Compatibility-
+    Date Header mit (core.esi_config.ESI_COMPATIBILITY_DATE) — ESI
+    versioniert nicht mehr über die URL, sondern über dieses Datum
 """
 import json
 import time
@@ -34,7 +37,7 @@ import urllib.parse
 from core import logger as _logger
 _log = _logger.get("esi_client")
 
-from core.esi_config import ESI_BASE_URL
+from core.esi_config import ESI_BASE_URL, ESI_COMPATIBILITY_DATE
 from core.config import APP_VERSION
 
 
@@ -149,8 +152,9 @@ def call(method: str, path: str, character_id: str | None = None,
             url += "?" + urllib.parse.urlencode(query)
 
         headers = {
-            "Accept":     "application/json",
-            "User-Agent": f"EVE-Toolbox/{APP_VERSION}",
+            "Accept":                "application/json",
+            "User-Agent":            f"EVE-Toolbox/{APP_VERSION}",
+            "X-Compatibility-Date":  ESI_COMPATIBILITY_DATE,
         }
         if access_token:
             headers["Authorization"] = f"Bearer {access_token}"

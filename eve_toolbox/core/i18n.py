@@ -29,7 +29,7 @@ def _find_lang_dir() -> Path:
     return fallback
 
 _LANG_DIR = _find_lang_dir()
-_DEFAULT   = "de"
+_DEFAULT   = "en"
 _cache:  dict = {}
 _lang:   str  = _DEFAULT
 

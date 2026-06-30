@@ -27,35 +27,53 @@
   "modules": {
     "assets": {
       "name": "Assets",
-      "desc": "All items across chars & corps"
+      "desc": "All items across characters & corps",
+      "sub": {}
     },
     "markt": {
       "name": "Market",
-      "desc": "Prices, orders & trading"
+      "desc": "Prices, orders & trading",
+      "sub": {}
     },
     "skills": {
       "name": "Skills",
-      "desc": "Offline skill planning"
+      "desc": "Offline skill planning",
+      "sub": {}
     },
     "intel": {
       "name": "Intel",
-      "desc": "Real-time system monitoring"
+      "desc": "Real-time system monitoring",
+      "sub": {}
     },
     "pi": {
       "name": "Planetary (PI)",
-      "desc": "Colonies & extraction"
+      "desc": "Colonies & extraction",
+      "sub": {}
     },
     "industrie": {
       "name": "Industry",
-      "desc": "Blueprints & calculation"
+      "desc": "Blueprints & calculation",
+      "sub": {}
     },
     "routen": {
       "name": "Routes",
-      "desc": "Safe paths & planning"
+      "desc": "Safe paths & planning",
+      "sub": {}
     },
     "wallet": {
       "name": "Wallet",
-      "desc": "ISK, transactions & journal"
+      "desc": "ISK, transactions & journal",
+      "sub": {}
+    },
+    "status_module": {
+      "fertig": "This module is finished — will be unlocked soon.",
+      "entwicklung": "This module is in development.",
+      "geplant": "This module is planned and not yet started."
+    },
+    "status_sub": {
+      "fertig": "This function is finished — will be unlocked soon.",
+      "entwicklung": "This function is in development.",
+      "geplant": "This function is planned and not yet started."
     }
   },
   "settings": {
@@ -108,14 +126,13 @@
     "dev_mode": "Developer Mode",
     "dev_mode_desc": "Unlocks modules marked as 'In Development'",
     "test_mode": "Test Mode",
-    "test_mode_desc": "Lifts ALL locks — including planned modules. Only available when developer mode is active.",
+    "test_mode_desc": "Lifts ALL restrictions. Only when Developer Mode is active.",
     "dev_sub_notifications": "Notifications",
     "emergency_rollback": "Emergency Rollback (only visible with valid dev token)",
     "rollback_to_backup": "Reset to last backup",
     "rollback_button": "Reset",
     "backup_available_local": "Local backup available: v{version}",
     "no_backup_local": "No local backup available",
-    "test_mode_desc": "Lifts ALL restrictions. Only when Developer Mode is active.",
     "updates": "Updates",
     "installed_version": "Installed Version",
     "latest_version": "Latest Version",
@@ -131,7 +148,10 @@
     "reset_btn": "Reset",
     "reset_btn_danger": "⚠  Reset",
     "reset_all_btn": "⚠  Reset Everything",
-    "back": "✕  Back"
+    "back": "✕  Back",
+    "layout_grid": "Rectangle Layout",
+    "layout_donut": "Round Layout",
+    "func_info_explainer": "Here you can see the status of all modules.\nFinished = production-ready  ·  In Development = active in dev mode  ·  Planned = not yet started"
   },
   "notifications": {
     "title": "Notifications",
@@ -165,6 +185,7 @@
   "splash": {
     "loading": "Loading EVE Toolbox...",
     "initializing": "Initializing...",
+    "updating_database": "Updating database...",
     "checking_updates": "Checking for updates...",
     "no_update": "No update found.",
     "update_found": "Update v{version} found!",

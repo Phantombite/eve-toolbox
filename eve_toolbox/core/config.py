@@ -8,11 +8,11 @@ import json
 from core import logger as _logger
 _log = _logger.get("config")
 
+from core.i18n import t
+
 MODULES = [
     {
         "id":        "assets",
-        "name":      "Assets",
-        "desc":      "Alle Items aller Chars & Corps",
         "icon":      "package",
         "ready":     False,      # Produktionsbereit
         "dev_ready": False,      # In Entwicklung
@@ -20,8 +20,6 @@ MODULES = [
     },
     {
         "id":        "markt",
-        "name":      "Markt",
-        "desc":      "Preise, Orders & Handel",
         "icon":      "chart-bar",
         "ready":     False,
         "dev_ready": False,
@@ -29,8 +27,6 @@ MODULES = [
     },
     {
         "id":        "skills",
-        "name":      "Skills",
-        "desc":      "Skill-Planung offline",
         "icon":      "brain",
         "ready":     False,
         "dev_ready": False,
@@ -38,8 +34,6 @@ MODULES = [
     },
     {
         "id":        "intel",
-        "name":      "Intel",
-        "desc":      "Echtzeit Systemüberwachung",
         "icon":      "radar",
         "ready":     False,
         "dev_ready": False,
@@ -47,8 +41,6 @@ MODULES = [
     },
     {
         "id":        "pi",
-        "name":      "Planetary (PI)",
-        "desc":      "Kolonien & Extraktion",
         "icon":      "plant",
         "ready":     False,
         "dev_ready": False,
@@ -56,8 +48,6 @@ MODULES = [
     },
     {
         "id":        "industrie",
-        "name":      "Industrie",
-        "desc":      "Blueprints & Kalkulation",
         "icon":      "hammer",
         "ready":     False,
         "dev_ready": False,
@@ -65,8 +55,6 @@ MODULES = [
     },
     {
         "id":        "routen",
-        "name":      "Routen",
-        "desc":      "Sichere Pfade & Planung",
         "icon":      "route",
         "ready":     False,
         "dev_ready": False,
@@ -74,14 +62,149 @@ MODULES = [
     },
     {
         "id":        "wallet",
-        "name":      "Wallet",
-        "desc":      "ISK, Transaktionen & Journal",
         "icon":      "cash",
         "ready":     False,
         "dev_ready": False,
         "status":    "geplant",
     },
 ]
+
+
+def get_module_name(mod_id: str) -> str:
+    """Übersetzter Anzeigename eines Hauptmoduls. Einzige Quelle:
+    i18n-Sprachdateien (modules.<id>.name) — MODULES selbst trägt nur
+    die ID, damit Namen ausschließlich in de.json/en.json gepflegt
+    werden müssen, nicht zusätzlich im Code."""
+    return t(f"modules.{mod_id}.name")
+
+
+def get_module_desc(mod_id: str) -> str:
+    """Übersetzte Kurzbeschreibung eines Hauptmoduls (modules.<id>.desc),
+    siehe get_module_name für das Prinzip."""
+    return t(f"modules.{mod_id}.desc")
+
+# ── Modul-Unterfunktionen (Außenring) ──────────────────────────────────────────
+# Pro Hauptmodul-ID eine Liste von Unterfunktionen, Slot 0 = erster Eintrag,
+# Slot 1 = zweiter, usw. Module ohne (weiteren) Eintrag hier zeigen an den
+# übrigen Positionen einen Außenring aus leeren Slots — siehe
+# DonutWidget.paintEvent. User-Anpassung (Slot-Tausch per Drag & Drop) wird
+# PRO MODUL gespeichert (nicht pro Ring-Position), damit eine Umsortierung
+# der Hauptkategorien die Unterfunktions-Zuordnung automatisch mitnimmt —
+# die Ausrichtung/Geometrie des Rings folgt dagegen der aktuellen Slot-
+# Position der Hauptkategorie.
+#
+# Bewusst LEER — die testweise eingefügten Placeholder-Einträge (1:1-Ersatz
+# der alten Hauptkategorie-Seiten, plus zusätzliche Test-Slots zum Prüfen
+# der Ausbreitungsanimation) wurden entfernt, nachdem der Außenring-
+# Mechanismus und die Animation fertig getestet waren. Echte Unterfunktionen
+# werden hier ergänzt, sobald sie eigene UI-Seiten haben (siehe
+# ui/main_window.py:_open_subfunction).
+MODULE_SUBFUNCTIONS = {}
+
+# Anzahl der Unterfunktions-Slots pro Hauptmodul — gilt layoutübergreifend
+# für JEDES Home-Layout (Donut-Außenring hat 16 Winkel-Slots, Grid-Karten-
+# rückseite hat ein 4×4-Raster = ebenfalls 16). Eine einzige Zahl, damit
+# beide Layouts garantiert dieselbe Slot-Anzahl verwenden.
+SUB_SLOT_COUNT = 16
+
+
+def get_full_sub_slot_perm(settings: dict, module_id: str,
+                            n_slots: int = SUB_SLOT_COUNT) -> list:
+    """Liefert die aktuell gespeicherte Slot-Belegung eines Moduls als
+    volle Liste der Länge n_slots, bestehend aus Basis-Indizes (Position
+    in MODULE_SUBFUNCTIONS[module_id]) oder -1 für einen leeren Slot.
+    -1 ist ein EXPLIZITER Marker (nicht einfach eine Lücke in einer
+    kürzeren Liste) — das ist wichtig, damit die absolute Slot-Position
+    einer Unterfunktion erhalten bleibt, auch wenn vor ihr nur leere
+    Slots liegen (ein simples Herausfiltern der Lücken würde sie beim
+    nächsten Laden wieder nach vorne rutschen lassen).
+
+    Bereinigt dabei ungültige/doppelte gespeicherte Werte (z.B. nach
+    Entfernen einer Unterfunktion aus MODULE_SUBFUNCTIONS im Code) und
+    hängt neue, noch nicht zugeordnete Basis-Indizes an die erste freie
+    Position an, statt sie zu verwerfen.
+
+    EINZIGE Quelle für diese Logik — sowohl Donut (DonutWidget, Ring-
+    Darstellung) als auch Grid (ModuleCard, Flip-Kartenrückseite) lesen
+    und schreiben über diese Funktion, damit beide Layouts garantiert
+    dieselbe Slot-Zuordnung zeigen (settings['sub_order'] ist bewusst
+    geteilt, nicht pro Layout getrennt) — nur WIE ein Slot gezeichnet
+    wird (Geometrie, Animation) bleibt layoutspezifisch."""
+    base = MODULE_SUBFUNCTIONS.get(module_id, [])
+    stored = settings.get("sub_order", {}).get(module_id, [])
+    seen = set()
+    slots = [-1] * n_slots
+    for slot_idx, bi in enumerate(stored):
+        if slot_idx >= n_slots:
+            break
+        if isinstance(bi, int) and 0 <= bi < len(base) and bi not in seen:
+            slots[slot_idx] = bi
+            seen.add(bi)
+    for bi in range(len(base)):
+        if bi not in seen:
+            free = next((k for k in range(n_slots) if slots[k] == -1), None)
+            if free is not None:
+                slots[free] = bi
+                seen.add(bi)
+    return slots
+
+
+def get_ordered_subfunctions(settings: dict, module_id: str,
+                              n_slots: int = SUB_SLOT_COUNT) -> list:
+    """Unterfunktionen-Slots eines Hauptmoduls in gespeicherter Reihen-
+    folge — liefert IMMER genau n_slots Einträge zurück, jeder Eintrag
+    ist entweder das echte, übersetzte Sub-Objekt (siehe get_subfunction)
+    oder None (unbelegter Slot). So lässt sich jede Position mit jeder
+    anderen tauschen — auch leer↔belegt — OHNE Phantom-Objekte zu
+    erzeugen, die irgendwo fälschlich als echtes Modul behandelt werden
+    könnten (Navigation/Klick-Erkennung prüfen weiterhin nur auf "ist
+    der Eintrag an dieser Position nicht None"). Siehe
+    get_full_sub_slot_perm für das Prinzip der geteilten Datenquelle."""
+    base = MODULE_SUBFUNCTIONS.get(module_id, [])
+    perm = get_full_sub_slot_perm(settings, module_id, n_slots)
+    return [get_subfunction(module_id, base[bi]["id"]) if bi >= 0 else None
+            for bi in perm]
+
+
+def swap_subfunctions(settings: dict, module_id: str, src_slot: int, dst_slot: int,
+                       n_slots: int = SUB_SLOT_COUNT) -> bool:
+    """Tauscht zwei Unterfunktions-SLOTS (per Index, nicht ID) innerhalb
+    EINES Hauptmoduls — auch leer↔belegt ist gültig, da jede Position
+    als Tauschpartner zählt, nicht nur belegte. Speichert die neue
+    Reihenfolge als VOLLSTÄNDIGE Liste über alle Slots
+    (settings['sub_order'][module_id]), mit -1 als explizitem Leer-
+    Marker für unbelegte Positionen — wichtig: die absolute Slot-
+    Position einer Unterfunktion muss erhalten bleiben, auch wenn vor
+    ihr nur leere Slots liegen.
+
+    Schreibt NUR in `settings` (kein Speichern auf Platte, kein UI-
+    Update) — das bleibt Sache des Aufrufers (siehe HomeDonut.
+    swap_subfunctions / ModuleCard für die jeweiligen layoutspezifischen
+    Wrapper, die zusätzlich cfg.save() und ein Repaint auslösen).
+    Geteilt zwischen Donut und Grid, damit beide garantiert dieselbe
+    Tausch-Logik verwenden. Gibt True zurück bei erfolgreichem Tausch,
+    False bei ungültigen Indizes (nichts wurde verändert)."""
+    if not (0 <= src_slot < n_slots) or not (0 <= dst_slot < n_slots):
+        return False
+    slots = get_full_sub_slot_perm(settings, module_id, n_slots)
+    slots[src_slot], slots[dst_slot] = slots[dst_slot], slots[src_slot]
+    sub_order = settings.setdefault("sub_order", {})
+    sub_order[module_id] = slots
+    return True
+
+
+def get_subfunction(module_id: str, sub_id: str) -> dict | None:
+    """Liefert den Unterfunktions-Eintrag für ein Hauptmodul + Unter-
+    funktions-ID, oder None falls nicht vorhanden. Das zurückgegebene
+    Dict enthält weiterhin 'id' und 'name' (Aufrufer ändern sich
+    dadurch nicht) — 'name' wird aber live aus den i18n-Sprachdateien
+    übersetzt (modules.<module_id>.sub.<sub_id>), MODULE_SUBFUNCTIONS
+    selbst trägt nur noch die ID. Zentrale Stelle, damit ui/home_donut.py
+    und ui/main_window.py nicht jeweils selbst übersetzen müssen."""
+    for entry in MODULE_SUBFUNCTIONS.get(module_id, []):
+        if entry.get("id") == sub_id:
+            return {**entry, "name": t(f"modules.{module_id}.sub.{sub_id}")}
+    return None
 
 # ── Fraktionen ────────────────────────────────────────────────────────────────
 # Neue Fraktion hinzufügen: einfach neuen Eintrag hier anfügen.
@@ -173,9 +296,8 @@ def get_current_faction_colors() -> tuple[str, str]:
     return f["accent"], f["border"]
 
 HOME_LAYOUTS = {
-    "grid":       "Grid",
-    "donut_text": "Donut mit Name",
-    "donut_icon": "Donut nur Icons",
+    "grid":       "settings.layout_grid",
+    "donut_icon": "settings.layout_donut",
 }
 
 # Version wird aus version.json geladen — NUR dort ändern!

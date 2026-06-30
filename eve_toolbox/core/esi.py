@@ -24,7 +24,8 @@ _log = _logger.get("esi")
 
 from core.esi_config import (
     ESI_CLIENT_ID, ESI_AUTH_URL, ESI_TOKEN_URL,
-    ESI_BASE_URL, ESI_LOCAL_PORT, ESI_LOCAL_CB, ESI_SCOPES
+    ESI_BASE_URL, ESI_LOCAL_PORT, ESI_LOCAL_CB, ESI_SCOPES,
+    ESI_COMPATIBILITY_DATE
 )
 from core import crypto_vault as _vault
 
@@ -140,7 +141,10 @@ def _refresh_token(refresh: str) -> dict:
 def _esi_get(endpoint: str, access_token: str = None) -> dict:
     """Einfacher ESI GET Request."""
     url = ESI_BASE_URL + endpoint
-    headers = {"Accept": "application/json"}
+    headers = {
+        "Accept": "application/json",
+        "X-Compatibility-Date": ESI_COMPATIBILITY_DATE,
+    }
     if access_token:
         headers["Authorization"] = f"Bearer {access_token}"
     req = urllib.request.Request(url, headers=headers, method="GET")

@@ -23,6 +23,7 @@ DEFAULTS = {
     "window_width": 1200,
     "window_height":750,
     "module_order": [],
+    "sub_order":    {},  # pro Modul-ID die Sub-Slot-Reihenfolge (Außenring)
     "edit_locked":       True,
     "first_run":         True,
     "update_on_start":   True,

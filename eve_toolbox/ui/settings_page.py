@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
 from PyQt6.QtCore import Qt, pyqtSignal, QRectF
 from PyQt6.QtGui import QFont, QColor, QPainter, QPen, QBrush, QPainterPath, QStandardItemModel, QStandardItem
 
-from core.config import FACTIONS, HOME_LAYOUTS, MODULES
+from core.config import FACTIONS, HOME_LAYOUTS, MODULES, get_module_name, get_module_desc
 from core.i18n import t, available_languages
 
 
@@ -104,16 +104,25 @@ class SettingRow(QWidget):
         lay.setContentsMargins(0, 8, 0, 8)
         lay.setSpacing(12)
         info = QVBoxLayout(); info.setSpacing(2)
-        lbl = QLabel(label)
-        lbl.setFont(QFont("Segoe UI", 12, QFont.Weight.Medium))
-        info.addWidget(lbl)
+        self._lbl = QLabel(label)
+        self._lbl.setFont(QFont("Segoe UI", 12, QFont.Weight.Medium))
+        info.addWidget(self._lbl)
+        self._sub = None
         if sublabel:
-            sub = QLabel(sublabel); sub.setObjectName("SettingsSubLabel")
-            sub.setWordWrap(True); info.addWidget(sub)
+            self._sub = QLabel(sublabel); self._sub.setObjectName("SettingsSubLabel")
+            self._sub.setWordWrap(True); info.addWidget(self._sub)
         lay.addLayout(info, stretch=1)
         self._lay = lay
 
     def add_control(self, w): self._lay.addWidget(w)
+
+    def set_label(self, label: str, sublabel: str = ""):
+        """Aktualisiert Label/Sublabel nachträglich — gebraucht für
+        retranslate() nach einem Sprachwechsel, da der Text sonst nur
+        einmalig beim Konstruktor gesetzt wird."""
+        self._lbl.setText(label)
+        if sublabel and self._sub is not None:
+            self._sub.setText(sublabel)
 
 
 class FlexButton(QPushButton):
@@ -393,11 +402,13 @@ class PageDarstellung(QWidget):
         lay.setContentsMargins(32, 24, 32, 24)
         lay.setSpacing(0); lay.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        lay.addWidget(section(t("settings.appearance")))
+        self._section_appearance = section(t("settings.appearance"))
+        lay.addWidget(self._section_appearance)
         lay.addWidget(hline()); lay.addSpacing(12)
 
         # Design (Fraktionen + Corporations gruppiert)
-        row = SettingRow(t("settings.faction_design"), t("settings.faction_design_desc"))
+        self._row_design = SettingRow(t("settings.faction_design"), t("settings.faction_design_desc"))
+        row = self._row_design
         self._faction_cb = SettingsCombo()
 
         factions_sorted = sorted(
@@ -425,7 +436,8 @@ class PageDarstellung(QWidget):
         lay.addWidget(hline()); lay.addSpacing(4)
 
         # Theme
-        row2 = SettingRow(t("settings.theme"), t("settings.theme_desc"))
+        self._row_theme = SettingRow(t("settings.theme"), t("settings.theme_desc"))
+        row2 = self._row_theme
         self._theme_cb = SettingsCombo()
         self._theme_cb.addItem(t("settings.theme_light"), "light"); self._theme_cb.addItem(t("settings.theme_dark"), "dark")
         self._theme_cb.setCurrentIndex(0 if self.settings.get("theme","dark") == "light" else 1)
@@ -435,10 +447,11 @@ class PageDarstellung(QWidget):
         lay.addWidget(hline()); lay.addSpacing(4)
 
         # Home Layout
-        row3 = SettingRow(t("settings.home_layout"), t("settings.home_layout_desc"))
+        self._row_layout = SettingRow(t("settings.home_layout"), t("settings.home_layout_desc"))
+        row3 = self._row_layout
         self._layout_cb = SettingsCombo()
-        for key, label in HOME_LAYOUTS.items():
-            self._layout_cb.addItem(label, key)
+        for key, label_key in HOME_LAYOUTS.items():
+            self._layout_cb.addItem(t(label_key), key)
         cur_l = self.settings.get("home_layout","grid")
         lkeys = list(HOME_LAYOUTS.keys())
         self._layout_cb.setCurrentIndex(lkeys.index(cur_l) if cur_l in lkeys else 0)
@@ -448,7 +461,8 @@ class PageDarstellung(QWidget):
         lay.addWidget(hline()); lay.addSpacing(4)
 
         # Bearbeitungsmodus
-        row4 = SettingRow(t("settings.edit_layout"), t("settings.edit_layout_desc"))
+        self._row_edit = SettingRow(t("settings.edit_layout"), t("settings.edit_layout_desc"))
+        row4 = self._row_edit
         self._edit_btn = ToggleBtn(not self.settings.get("edit_locked", True))
         self._edit_btn.clicked.connect(
             lambda: self.edit_mode_changed.emit(self._edit_btn.isChecked()))
@@ -470,6 +484,48 @@ class PageDarstellung(QWidget):
         self._edit_btn.setChecked(not self.settings.get("edit_locked", True))
         self._edit_btn.setText("ON" if self._edit_btn.isChecked() else "OFF")
 
+    def retranslate(self):
+        """Aktualisiert alle übersetzbaren UI-Texte dieser Seite nach
+        einem Sprachwechsel. Fraktions-/Corporation-NAMEN selbst (ORE,
+        Amarr, Jita, ...) sind EVE-spezifische Eigennamen und bleiben
+        unangetastet — nur die Gruppen-Überschriften ("Fraktion" /
+        "Corporations") und alle sonstigen UI-Texte werden neu gesetzt."""
+        self._section_appearance.setText(t("settings.appearance"))
+        self._row_design.set_label(t("settings.faction_design"), t("settings.faction_design_desc"))
+        self._row_theme.set_label(t("settings.theme"), t("settings.theme_desc"))
+        self._row_layout.set_label(t("settings.home_layout"), t("settings.home_layout_desc"))
+        self._row_edit.set_label(t("settings.edit_layout"), t("settings.edit_layout_desc"))
+
+        # Fraktions-Combobox: Gruppen-Überschriften neu übersetzen, aber
+        # die Fraktionsnamen selbst (kommen aus FACTIONS[...]["name"],
+        # nicht aus i18n) bleiben unverändert. Aktuelle Auswahl merken
+        # und nach dem Rebuild wiederherstellen.
+        cur_faction = self._faction_cb.current_data_grouped()
+        factions_sorted = sorted(
+            [(k, f) for k, f in FACTIONS.items() if f.get("category", "faction") == "faction"],
+            key=lambda x: x[1]["name"])
+        corps_sorted = sorted(
+            [(k, f) for k, f in FACTIONS.items() if f.get("category") == "corporation"],
+            key=lambda x: x[1]["name"])
+        groups = [(t("settings.category_faction"), [(f["name"], k) for k, f in factions_sorted])]
+        if corps_sorted:
+            groups.append((t("settings.category_corporation"), [(f["name"], k) for k, f in corps_sorted]))
+        self._faction_cb.add_grouped_items(groups)
+        if not self._faction_cb.set_current_data_grouped(cur_faction):
+            self._faction_cb.set_current_data_grouped("caldari")
+
+        # Theme-Combobox: Texte neu setzen, Auswahl beibehalten.
+        cur_theme_idx = self._theme_cb.currentIndex()
+        self._theme_cb.setItemText(0, t("settings.theme_light"))
+        self._theme_cb.setItemText(1, t("settings.theme_dark"))
+        self._theme_cb.setCurrentIndex(cur_theme_idx)
+
+        # Layout-Combobox: Texte neu setzen, Auswahl beibehalten.
+        cur_layout_idx = self._layout_cb.currentIndex()
+        for i, (key, label_key) in enumerate(HOME_LAYOUTS.items()):
+            self._layout_cb.setItemText(i, t(label_key))
+        self._layout_cb.setCurrentIndex(cur_layout_idx)
+
 
 class PageFunktionsInfo(QWidget):
     def __init__(self, settings: dict, parent=None):
@@ -480,15 +536,13 @@ class PageFunktionsInfo(QWidget):
         lay.setContentsMargins(32, 24, 32, 24)
         lay.setSpacing(0); lay.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        lay.addWidget(section(t("settings.func_info")))
+        self._section = section(t("settings.func_info"))
+        lay.addWidget(self._section)
 
-        info = QLabel(
-            "Hier siehst du den Status aller Module.\n"
-            "Fertig = produktionsbereit  ·  In Entwicklung = im Dev-Modus aktiv  ·  Geplant = noch nicht begonnen"
-        )
-        info.setObjectName("SettingsSubLabel")
-        info.setWordWrap(True)
-        lay.addWidget(info)
+        self._info = QLabel(t("settings.func_info_explainer"))
+        self._info.setObjectName("SettingsSubLabel")
+        self._info.setWordWrap(True)
+        lay.addWidget(self._info)
         lay.addWidget(hline()); lay.addSpacing(12)
 
         STATUS_ICONS = {
@@ -496,18 +550,18 @@ class PageFunktionsInfo(QWidget):
             "entwicklung": ("⚙",  "#BA7517"),
             "geplant":     ("○",  "#888888"),
         }
-        STATUS_LABELS = {
-            "fertig":      t("settings.status_ready"),
-            "entwicklung": t("settings.status_dev"),
-            "geplant":     t("settings.status_planned"),
-        }
 
+        self._rows = []  # (mod_id, SettingRow, badge) für retranslate
         for mod in MODULES:
             status = mod.get("status", "geplant")
             icon, color = STATUS_ICONS.get(status, ("○", "#888"))
-            label = STATUS_LABELS.get(status, t("settings.status_planned"))
+            label = t({
+                "fertig": "settings.status_ready",
+                "entwicklung": "settings.status_dev",
+                "geplant": "settings.status_planned",
+            }.get(status, "settings.status_planned"))
 
-            row = SettingRow(mod["name"], mod["desc"])
+            row = SettingRow(get_module_name(mod["id"]), get_module_desc(mod["id"]))
             badge = QLabel(f"{icon}  {label}")
             badge.setStyleSheet(
                 f"color: {color}; font-size: 11px; font-weight: 600;"
@@ -516,6 +570,7 @@ class PageFunktionsInfo(QWidget):
             row.add_control(badge)
             lay.addWidget(row)
             lay.addWidget(hline())
+            self._rows.append((mod["id"], status, row, badge, icon, color))
 
         lay.addStretch()
         outer = QVBoxLayout(self)
@@ -523,6 +578,21 @@ class PageFunktionsInfo(QWidget):
         outer.addWidget(scrolled(inner))
 
     def sync(self): pass
+
+    def retranslate(self):
+        """Aktualisiert Section-Header, Erklärtext und alle Modul-
+        Namen/Beschreibungen/Status-Labels nach einem Sprachwechsel."""
+        self._section.setText(t("settings.func_info"))
+        self._info.setText(t("settings.func_info_explainer"))
+        status_keys = {
+            "fertig": "settings.status_ready",
+            "entwicklung": "settings.status_dev",
+            "geplant": "settings.status_planned",
+        }
+        for mod_id, status, row, badge, icon, color in self._rows:
+            row.set_label(get_module_name(mod_id), get_module_desc(mod_id))
+            label = t(status_keys.get(status, "settings.status_planned"))
+            badge.setText(f"{icon}  {label}")
 
 
 class PageEntwickler(QWidget):

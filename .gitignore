@@ -5,6 +5,7 @@ __pycache__/
 
 # PyInstaller Build-Output (nur Zwischendateien)
 build/build/
+build/dist/
 *.spec.bak
 
 # IDE
@@ -31,11 +32,6 @@ client_secret.txt
 backup/
 
 # ── Sicherheitsdateien (NIEMALS pushen!) ──────────────────────
-# Beide Schreibweisen (im erwarteten Ordner UND als blanker Dateiname)
-# eingetragen — falls der Root Key aus irgendeinem Grund mal NICHT in
-# ROOT_KEY_SICHERN/ liegt (z.B. versehentlich ins Projekt-Root kopiert),
-# greift trotzdem ein Ignore-Treffer. Doppelt abgesichert ist hier
-# bewusst keine Redundanz, sondern Absicht: "save ist save".
 dev_privkey.pem
 dev_mode.flag
 ROOT_KEY_SICHERN/
@@ -43,45 +39,46 @@ root_privkey.pem
 Eve toolbox securety roadmap.md
 
 # ── Build-Hilfsskript-Reste ────────────────────────────────────
-# Temporäre Python-Einzeiler, die security_generator.bat/release.bat
-# erzeugen und normalerweise selbst wieder löschen — falls ein Lauf
-# abbricht, bevor das passiert, bleiben sie sonst liegen.
 _*.tmp
 _*_tmp.py
 _tok_tmp.py
 
 # ── Nutzerdaten (lokal, nicht versionieren) ───────────────────
-# data/ = Vault (Salt + verschlüsselte Account-Daten)
-# appdata/ = Settings, Logs, Notifications, Backup — alles, was vorher
-# im Windows-Benutzerprofil (~/.eve_toolbox/) lag, liegt jetzt ebenfalls
-# direkt im portablen Programmordner, damit alle EVE Toolbox Dateien an
-# einem Ort bleiben (kein erneutes Einrichten nach dem Verschieben).
-data/
-appdata/
-# *.log, settings.json als zusätzliches Sicherheitsnetz — appdata/
-# deckt das normalerweise schon ab, falls aber doch mal eine Datei
-# woanders landet, greift hier trotzdem ein Ignore-Treffer.
+# /data/ = Vault (Salt + verschlüsselte Account-Daten), liegt im
+# Projekt-ROOT (eve-toolbox/data/) — NICHT zu verwechseln mit
+# eve_toolbox/core/data/ (unser Quellcode, MUSS versioniert werden!).
+#
+# /appdata/ = Settings, Logs, Notifications, Backup, UND die drei
+# Spieldatenbanken (items.sqlite/universe.sqlite/characters.sqlite) —
+# werden bei JEDEM Nutzer automatisch aus der SDE neu gebaut
+# (core/data/db_updater.py), gehören daher nicht ins Repository.
+#
+# WICHTIG: Führender Schrägstrich verankert die Regel am Projekt-ROOT
+# (wo .gitignore selbst liegt) — er verhindert NICHT, dass Git den
+# Namen an tieferen Ebenen matcht, sondern verhindert nur ein
+# versehentliches Matchen an höheren/anderen Ebenen mit ZUFÄLLIG
+# gleichem Namen. Da "data" als Ordnername NUR im Root (data/) und
+# unter core/ (core/data/) vorkommt, und beide unterschiedliche Tiefe
+# haben, reicht der Root-Anker hier aus, um die beiden eindeutig
+# auseinanderzuhalten — getestet gegen die echte Projektstruktur.
+/data/
+/appdata/
 *.log
 settings.json
 
 # ── Release Dateien (werden als GitHub Release Anhang hochgeladen) ──
-eve_toolbox.zip
-eve_toolbox.zip.sig
+/eve_toolbox.zip
+/eve_toolbox.zip.sig
 update_download.zip
 previous_version.zip
 
 # ── Fertig gebaute Laufzeitumgebung (NICHT ins Repo) ──────────
-# EVE_Toolbox.exe + _internal/ im Projekt-Root sind das, was
-# release.bat am Ende dorthin kopiert ("Kopiere Release-Dateien ins
-# Hauptverzeichnis") — reine Binärdateien (DLLs, .pyd, Qt-Bibliotheken),
-# bei jedem Release komplett neu von PyInstaller erzeugt, nie sinnvoll
-# als Diff versionierbar. Die fertige Version geht ausschließlich über
-# die GitHub-Release-ZIP an die Nutzer, NICHT über das Git-Repository
-# selbst. _internal/ bleibt davon unberührt INNERHALB der ZIP (die ZIP
-# wird komplett separat über release.bat gebaut, nicht aus dem
-# Git-Stand) — dieser Eintrag betrifft nur, was committet wird.
-EVE_Toolbox.exe
-_internal/
+# Führender Schrägstrich: nur die EXE/_internal/ im Projekt-ROOT sind
+# gemeint (das, was release.bat dort hin kopiert) — falls jemals eine
+# gleichnamige Datei an anderer Stelle im Projekt nötig wäre, bleibt
+# sie davon unberührt.
+/EVE_Toolbox.exe
+/_internal/
 
 # ── Build dist (nur Zwischendateien, nicht das fertige Release) ──
-build/dist/
+# (bereits oben mit build/dist/ und build/build/ abgedeckt)
